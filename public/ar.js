@@ -49,35 +49,65 @@ function buildFrederic3D(g, W, H) {
           return data[(py * DW + px) * 4] / 255;   // grayscale : canal R
         };
 
-        // 2) Géométrie tessellée + displacement CPU
-        const geo = new THREE.PlaneGeometry(W, H, 96, 160);
-        const pos = geo.attributes.position;
-        const uv = geo.attributes.uv;
-        for (let i = 0; i < pos.count; i++) {
-          const x = pos.getX(i), y = pos.getY(i);
-          const d = depthAt(uv.getX(i), 1 - uv.getY(i));
-          // relief + léger bombé cylindrique (effet figurine)
-          pos.setZ(i, d * 0.18 + (x * x) * 0.02);
-          // inset UV ~2% pour éviter les franges transparentes étirées aux bords
-          uv.setXY(i, 0.02 + uv.getX(i) * 0.96, 0.02 + uv.getY(i) * 0.96);
-        }
-        pos.needsUpdate = true;
-        uv.needsUpdate = true;
-        geo.computeVertexNormals();
+        // 1b) Charge l'image couleur en parallèle pour lire son alpha :
+        //     les zones quasi transparentes ne doivent PAS être déplacées
+        //     (sinon les pixels de bord semi-transparents "drippent" vers l'extérieur).
+        const colorImg = new Image();
+        const finish = (alphaAt) => {
+          // 2) Géométrie tessellée + displacement CPU
+          const geo = new THREE.PlaneGeometry(W, H, 96, 160);
+          const pos = geo.attributes.position;
+          const uv = geo.attributes.uv;
+          for (let i = 0; i < pos.count; i++) {
+            const x = pos.getX(i), y = pos.getY(i);
+            const uu = uv.getX(i), vv = 1 - uv.getY(i);
+            let d = depthAt(uu, vv);
+            // alpha faible → contour : on neutralise le displacement (plan plat)
+            if (alphaAt && alphaAt(uu, vv) < 0.3) d = 0;
+            // relief + léger bombé cylindrique (effet figurine)
+            pos.setZ(i, d * 0.18 + (x * x) * 0.02);
+            // inset UV ~2% pour éviter les franges transparentes étirées aux bords
+            uv.setXY(i, 0.02 + uv.getX(i) * 0.96, 0.02 + uv.getY(i) * 0.96);
+          }
+          pos.needsUpdate = true;
+          uv.needsUpdate = true;
+          geo.computeVertexNormals();
 
-        // 3) Matériau éclairé (reçoit warm/ambient/rim → le relief ressort)
-        const mat = new THREE.MeshStandardMaterial({
-          transparent: true, side: THREE.DoubleSide,
-          alphaTest: 0.05, roughness: 0.85, metalness: 0.0,
-        });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(0, H / 2, 0);
-        new THREE.TextureLoader().load("frederic.png", (tex) => {
-          tex.colorSpace = THREE.SRGBColorSpace;
-          mat.map = tex; mat.needsUpdate = true;
-        });
-        g.add(mesh);
-        resolve(mesh);
+          // 3) Matériau éclairé : l'illustration s'auto-éclaire (emissive = texture)
+          //    pour garder ses couleurs d'origine, tout en recevant la lumière
+          //    chaude de la scène qui accentue le relief.
+          const mat = new THREE.MeshStandardMaterial({
+            transparent: true, side: THREE.DoubleSide,
+            alphaTest: 0.35,                     // coupe les pixels semi-transparents des contours
+            roughness: 0.7, metalness: 0.0,
+            emissive: 0xffffff, emissiveIntensity: 0.55,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(0, H / 2, 0);
+          new THREE.TextureLoader().load("frederic.png", (tex) => {
+            tex.colorSpace = THREE.SRGBColorSpace;
+            mat.map = tex; mat.emissiveMap = tex; mat.needsUpdate = true;
+          });
+          g.add(mesh);
+          resolve(mesh);
+        };
+        colorImg.onload = () => {
+          try {
+            const ac = document.createElement("canvas");
+            ac.width = DW; ac.height = DH;
+            const ax = ac.getContext("2d", { willReadFrequently: true });
+            ax.drawImage(colorImg, 0, 0, DW, DH);
+            const adata = ax.getImageData(0, 0, DW, DH).data;
+            const alphaAt = (u, v) => {
+              const px = Math.min(DW - 1, Math.max(0, Math.round(u * (DW - 1))));
+              const py = Math.min(DH - 1, Math.max(0, Math.round(v * (DH - 1))));
+              return adata[(py * DW + px) * 4 + 3] / 255;   // canal alpha
+            };
+            finish(alphaAt);
+          } catch { finish(null); }
+        };
+        colorImg.onerror = () => finish(null);
+        colorImg.src = "frederic.png";
       } catch { resolve(null); }
     };
     img.onerror = () => resolve(null);        // depth map absente → fallback 2.5D
@@ -453,27 +483,48 @@ function makeRuneCircleTexture(inner = false) {
   x.strokeStyle = gold(0.55); x.lineWidth = 2.5;
   x.beginPath(); x.arc(0, 0, R * 0.9, 0, Math.PI * 2); x.stroke();
   if (!inner) {
-    // runes gravées entre les deux anneaux
+    // "runes" d'enluminure de conte : petites étoiles à 4 branches, points et arcs doux
     const NR = 24;
-    x.strokeStyle = gold(0.95); x.lineWidth = 3; x.lineCap = "round";
+    x.strokeStyle = gold(0.95); x.fillStyle = gold(0.95);
+    x.lineWidth = 2.2; x.lineCap = "round";
+    const rr = (i, n) => ((i * 2654435761 + n * 40503) >>> 0) % 1000 / 1000;
     for (let i = 0; i < NR; i++) {
       const ang = (i / NR) * Math.PI * 2;
       x.save();
       x.rotate(ang);
       x.translate(0, -R * 0.95);
-      // glyphe pseudo-runique : traits aléatoires déterministes
-      const rr = (n) => ((i * 2654435761 + n * 40503) >>> 0) % 1000 / 1000;
-      x.beginPath();
-      const h = R * 0.07, w = R * 0.035;
-      x.moveTo(0, -h); x.lineTo(0, h);                       // fût
-      if (rr(1) > 0.35) { x.moveTo(0, -h); x.lineTo(w * (rr(2) > 0.5 ? 1 : -1), -h * 0.3); }
-      if (rr(3) > 0.45) { x.moveTo(0, h * -0.1); x.lineTo(w * (rr(4) > 0.5 ? 1 : -1), h * 0.5); }
-      if (rr(5) > 0.6) { x.moveTo(-w, 0); x.lineTo(w, 0); }
-      if (rr(6) > 0.75) { x.moveTo(0, h); x.lineTo(w, h * 0.4); }
-      x.stroke();
+      const kind = i % 3;
+      if (kind === 0) {
+        // petite étoile à 4 branches douces
+        const s = R * 0.045;
+        x.beginPath();
+        for (let k = 0; k < 4; k++) {
+          const a = (k / 4) * Math.PI * 2;
+          const c = Math.cos(a), sn = Math.sin(a);
+          x.moveTo(c * s, sn * s);
+          x.quadraticCurveTo(c * s * 0.25 - sn * s * 0.18, sn * s * 0.25 + c * s * 0.18, 0, 0);
+          x.moveTo(0, 0);
+          x.quadraticCurveTo(c * s * 0.25 + sn * s * 0.18, sn * s * 0.25 - c * s * 0.18, c * s, sn * s);
+        }
+        x.stroke();
+        x.beginPath(); x.arc(0, 0, 1.6, 0, Math.PI * 2); x.fill();
+      } else if (kind === 1) {
+        // arc souriant + point (petit croissant doux)
+        const s = R * 0.05;
+        x.beginPath();
+        x.arc(0, 0, s, Math.PI * (0.15 + rr(i, 1) * 0.3), Math.PI * (0.85 + rr(i, 2) * 0.3));
+        x.stroke();
+        x.beginPath(); x.arc(s * 0.9, -s * 0.2, 1.8, 0, Math.PI * 2); x.fill();
+      } else {
+        // grappe de 3 points scintillants
+        const s = R * 0.04;
+        x.beginPath(); x.arc(-s, s * 0.4, 1.7, 0, Math.PI * 2); x.fill();
+        x.beginPath(); x.arc(0, -s * 0.6, 2.1, 0, Math.PI * 2); x.fill();
+        x.beginPath(); x.arc(s, s * 0.4, 1.7, 0, Math.PI * 2); x.fill();
+      }
       x.restore();
     }
-    // petits points entre les runes
+    // petits points entre les motifs
     x.fillStyle = gold(0.8);
     for (let i = 0; i < NR; i++) {
       const ang = ((i + 0.5) / NR) * Math.PI * 2;
@@ -482,19 +533,73 @@ function makeRuneCircleTexture(inner = false) {
       x.fill();
     }
   } else {
-    // anneau intérieur : triangles et étoile entrelacés
-    x.strokeStyle = gold(0.7); x.lineWidth = 2;
-    for (let k = 0; k < 2; k++) {
+    // anneau intérieur féerique : spirale d'étoile à 8 branches douce,
+    // petites étoiles à 4 branches en cercle, et un livre ouvert au centre
+    x.lineCap = "round";
+
+    // spirale à 8 branches : 8 courbes douces qui s'enroulent depuis le centre
+    x.strokeStyle = gold(0.7); x.lineWidth = 1.8;
+    for (let k = 0; k < 8; k++) {
+      const a0 = (k / 8) * Math.PI * 2;
       x.beginPath();
-      for (let i = 0; i <= 3; i++) {
-        const ang = (i / 3) * Math.PI * 2 + k * Math.PI / 3 - Math.PI / 2;
-        const px = Math.cos(ang) * R * 0.78, py = Math.sin(ang) * R * 0.78;
-        i === 0 ? x.moveTo(px, py) : x.lineTo(px, py);
+      for (let t = 0; t <= 20; t++) {
+        const f = t / 20;                              // 0 → 1 le long de la branche
+        const rad = R * (0.3 + 0.5 * f);               // s'éloigne du centre
+        const a = a0 + f * 0.9;                        // s'enroule doucement
+        const px = Math.cos(a) * rad, py = Math.sin(a) * rad;
+        t === 0 ? x.moveTo(px, py) : x.lineTo(px, py);
       }
       x.stroke();
+      // point lumineux au bout de chaque branche
+      const ae = a0 + 0.9, re = R * 0.8;
+      x.beginPath(); x.arc(Math.cos(ae) * re, Math.sin(ae) * re, 2.2, 0, Math.PI * 2);
+      x.fillStyle = gold(0.85); x.fill();
     }
+
+    // petites étoiles à 4 branches disposées en cercle
+    const NS = 8;
+    x.strokeStyle = gold(0.85); x.lineWidth = 1.6;
+    for (let i = 0; i < NS; i++) {
+      const ang = (i / NS) * Math.PI * 2 + Math.PI / 8;
+      const sx = Math.cos(ang) * R * 0.55, sy = Math.sin(ang) * R * 0.55;
+      const s = R * 0.07;
+      x.beginPath();
+      x.moveTo(sx, sy - s); x.lineTo(sx, sy + s);
+      x.moveTo(sx - s, sy); x.lineTo(sx + s, sy);
+      x.stroke();
+      x.beginPath(); x.arc(sx, sy, 1.8, 0, Math.PI * 2);
+      x.fillStyle = gold(0.9); x.fill();
+    }
+
+    // livre ouvert au centre (traits dorés fins)
+    const bw = R * 0.2, bh = R * 0.13;                 // demi-largeur / hauteur du livre
+    x.strokeStyle = gold(0.95); x.lineWidth = 2.2;
+    x.beginPath();
+    // couverture : deux "ailes" qui remontent vers l'extérieur
+    x.moveTo(-bw, -bh * 0.7);
+    x.quadraticCurveTo(-bw * 0.5, -bh * 1.25, 0, -bh * 0.7);   // bord haut gauche
+    x.quadraticCurveTo(bw * 0.5, -bh * 1.25, bw, -bh * 0.7);   // bord haut droit
+    x.lineTo(bw, bh * 0.55);
+    x.quadraticCurveTo(bw * 0.5, bh * 0.05, 0, bh * 0.55);     // bas droit
+    x.quadraticCurveTo(-bw * 0.5, bh * 0.05, -bw, bh * 0.55);  // bas gauche
+    x.closePath();
+    x.stroke();
+    // reliure centrale
+    x.beginPath(); x.moveTo(0, -bh * 0.7); x.lineTo(0, bh * 0.55); x.stroke();
+    // lignes de texte suggérées (2 par page)
+    x.strokeStyle = gold(0.6); x.lineWidth = 1.3;
+    for (const sgn of [-1, 1]) {
+      for (let l = 0; l < 2; l++) {
+        const ly = -bh * 0.25 + l * bh * 0.45;
+        x.beginPath();
+        x.moveTo(sgn * bw * 0.18, ly);
+        x.quadraticCurveTo(sgn * bw * 0.55, ly - bh * 0.15, sgn * bw * 0.82, ly - bh * 0.05);
+        x.stroke();
+      }
+    }
+    // éclat au-dessus du livre (petit point magique)
     x.fillStyle = gold(0.9);
-    x.beginPath(); x.arc(0, 0, 5, 0, Math.PI * 2); x.fill();
+    x.beginPath(); x.arc(0, -bh * 1.7, 3, 0, Math.PI * 2); x.fill();
   }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -546,9 +651,10 @@ function buildSceneContent(parent) {
 
   // Lumière de chandelle : chaude, vivante
   const warm = new THREE.PointLight(0xffc36b, 2.4, 6); warm.position.set(0.4, 1.2, 0.8);
-  const fill = new THREE.AmbientLight(0x8898c8, 0.9);
+  const fill = new THREE.AmbientLight(0x8898c8, 1.6);
+  const hemi = new THREE.HemisphereLight(0xfff2d8, 0x8a7a6a, 0.9);  // ciel chaud / sol doux
   const rim = new THREE.DirectionalLight(0xf5b942, 1.2); rim.position.set(-1, 2, -1);
-  anchorGroup.add(warm, fill, rim);
+  anchorGroup.add(warm, fill, hemi, rim);
   anchorGroup.userData.warm = warm;
 
   // Cercle magique runique : anneau doré gravé de runes qui tourne lentement
@@ -564,7 +670,7 @@ function buildSceneContent(parent) {
   anchorGroup.add(ring);
   anchorGroup.userData.ring = ring;
 
-  // Anneau intérieur contre-rotatif (triangles ésotériques)
+  // Anneau intérieur contre-rotatif (spirale d'étoiles + livre ouvert)
   const ringInner = new THREE.Mesh(
     new THREE.PlaneGeometry(0.62, 0.62),
     new THREE.MeshBasicMaterial({
