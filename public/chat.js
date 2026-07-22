@@ -120,7 +120,8 @@ export async function fredericSpeaks(text) {
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "fr-FR";
   if (voiceFR) u.voice = voiceFR;
-  u.rate = 0.95; u.pitch = 0.82;   // pitch bas = voix d'homme, même si le device n'a qu'une voix neutre
+  u.rate = 1.06;                    // plus vif (moins traînant)
+  u.pitch = 0.7;                    // nettement plus grave = plus masculin
   u.onend = () => onTalkingChange(false);
   u.onerror = () => onTalkingChange(false);
   speechSynthesis.speak(u);

@@ -266,6 +266,26 @@ async function startBookMode() {
   anchor.onTargetLost = () => { scanGuide.hidden = false; };
 
   await mindar.start();
+
+  // MindAR applique des styles inline qui laissent des bandes noires : on force le plein écran.
+  const fill = () => {
+    $("ar-container").querySelectorAll("video, canvas").forEach((el) => {
+      el.style.position = "absolute";
+      el.style.left = "50%";
+      el.style.top = "50%";
+      el.style.transform = "translate(-50%, -50%)";
+      el.style.width = "100%";
+      el.style.height = "100%";
+      el.style.objectFit = "cover";
+      el.style.maxWidth = "none";
+      el.style.maxHeight = "none";
+    });
+  };
+  fill();
+  setTimeout(fill, 300);
+  setTimeout(fill, 1000);
+  addEventListener("resize", fill);
+
   runLoop();
 }
 
