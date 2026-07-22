@@ -18,14 +18,21 @@ export function initChat(opts = {}) {
   // Précharge une voix française MASCULINE pour le fallback (Frédéric est un homme)
   const pick = () => {
     const fr = speechSynthesis.getVoices().filter((v) => v.lang && v.lang.toLowerCase().startsWith("fr"));
-    // 1) noms de voix masculines connues (Android/Chrome/iOS)
-    const maleNames = /thomas|nicolas|daniel|paul|henri|guillaume|mathieu|homme|\bmale\b|man|français.*4|fr-fr-x-frd|fr-fr-x-vlf/i;
-    // 2) noms féminins à EXCLURE explicitement
-    const femaleNames = /amélie|amelie|audrey|marie|julie|celine|céline|virginie|léa|lea|chloe|chloé|female|femme|woman|aurelie|aurélie/i;
+    // 1) marqueurs masculins connus (Android/Chrome/iOS/desktop)
+    //    Android TTS : fr-fr-x-frd-* = voix HOMME ; iOS : Thomas ; Windows : Paul/Henri/Claude
+    const maleNames = /frd|thomas|nicolas|daniel|paul|henri|claude|guillaume|mathieu|antoine|homme|\bmale\b|\bman\b/i;
+    // 2) marqueurs féminins à EXCLURE (Android : fr-fr-x-vlf-* = voix FEMME)
+    const femaleNames = /vlf|fif|fpm|amélie|amelie|audrey|marie|julie|celine|céline|virginie|léa|lea|chloe|chloé|female|femme|woman|aurelie|aurélie|denise|hortense/i;
+    const males = fr.filter((v) => maleNames.test(v.name) && !femaleNames.test(v.name));
     voiceFR =
-      fr.find((v) => maleNames.test(v.name)) ||
-      fr.find((v) => !femaleNames.test(v.name)) ||   // à défaut, la première non-féminine
+      // priorité : voix masculine LOCALE (embarquée, meilleure qualité prosodie)
+      males.find((v) => v.localService) ||
+      males[0] ||
+      // à défaut : une voix non-féminine quelconque
+      fr.find((v) => !femaleNames.test(v.name) && v.localService) ||
+      fr.find((v) => !femaleNames.test(v.name)) ||
       fr[0] || null;
+    console.debug("[Frédéric] voix choisie :", voiceFR?.name || "défaut navigateur");
   };
   pick();
   speechSynthesis.onvoiceschanged = pick;
@@ -120,8 +127,8 @@ export async function fredericSpeaks(text) {
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "fr-FR";
   if (voiceFR) u.voice = voiceFR;
-  u.rate = 1.06;                    // plus vif (moins traînant)
-  u.pitch = 0.7;                    // nettement plus grave = plus masculin
+  u.rate = 0.98;                    // posé, prestance d'époque
+  u.pitch = 0.6;                    // très grave = clairement masculin, même si la voix de base est féminine
   u.onend = () => onTalkingChange(false);
   u.onerror = () => onTalkingChange(false);
   speechSynthesis.speak(u);
