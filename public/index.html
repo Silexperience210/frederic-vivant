@@ -28,8 +28,15 @@
     <img src="landing-window.jpg" alt="" draggable="false">
   </div>
   <div class="hero-veil" aria-hidden="true"></div>
+  <!-- Rayons de soleil animés sortant de la fenêtre -->
+  <div class="hero-rays" aria-hidden="true"></div>
+  <!-- Poussières dorées flottantes dans la lumière -->
+  <div class="gold-dust dust-a" aria-hidden="true"></div>
+  <div class="gold-dust dust-b" aria-hidden="true"></div>
   <!-- Canvas d'étincelles magiques (traînée + braises) -->
   <canvas id="magic-canvas" aria-hidden="true"></canvas>
+  <!-- Vignettage cinéma -->
+  <div class="hero-vignette" aria-hidden="true"></div>
 
   <div class="landing-inner">
     <!-- Carte souvenir : le village de Frédéric, 1850 -->
@@ -38,15 +45,19 @@
       <figcaption>Le village de Frédéric · 1850</figcaption>
     </figure>
 
+    <!-- Portrait de Frédéric en médaillon, haut à gauche -->
     <div class="frederic-portrait" aria-hidden="true">
       <span class="portrait-aura"></span>
       <span class="portrait-sparkles"></span>
       <img src="frederic-portrait.png" alt="" draggable="false">
     </div>
 
-    <p class="eyebrow reveal">Les petites leçons de Frédéric · Tome 1</p>
-    <h1 id="landing-title">Frédéric<br><em>prend vie</em></h1>
-    <p class="lede reveal">Pose ton <span class="kw">livre</span> bien à plat, laisse la caméra le regarder…<br>et Frédéric sortira des pages pour te <span class="kw">parler</span>.</p>
+    <!-- Panneau parchemin sombre : lisibilité du texte sur toute l'illustration -->
+    <div class="text-panel">
+      <p class="eyebrow reveal">Les petites leçons de Frédéric · Tome 1</p>
+      <h1 id="landing-title">Frédéric<br><em>prend vie</em></h1>
+      <p class="lede reveal">Pose ton <span class="kw">livre</span> bien à plat, laisse la caméra le regarder…<br>et Frédéric sortira des pages pour te <span class="kw">parler</span>.</p>
+    </div>
 
     <button id="btn-start" class="wax-seal" aria-label="Ouvrir le livre et démarrer la caméra. Maintiens le doigt appuyé pour cachetter.">
       <svg class="seal-ring" viewBox="0 0 100 100" aria-hidden="true">
