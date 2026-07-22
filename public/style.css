@@ -19,30 +19,79 @@ body{font-family:var(--body);background:var(--nuit-2);color:var(--parchemin);ove
 button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit}
 :focus-visible{outline:3px solid var(--chandelle);outline-offset:3px;border-radius:6px}
 
-/* ═══════════ Accueil ═══════════ */
-#landing{position:fixed;inset:0;display:grid;place-items:center;
-  background:radial-gradient(120% 90% at 50% 110%, #3A2A18 0%, var(--nuit) 46%, var(--nuit-2) 100%);
-  z-index:30}
-.landing-inner{position:relative;text-align:center;padding:32px 26px;max-width:420px;z-index:2}
-.eyebrow{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--cuivre);margin-bottom:14px}
-#landing h1{font-family:var(--display);font-weight:600;font-size:clamp(52px,15vw,76px);line-height:.95;color:var(--parchemin)}
-#landing h1 em{font-style:italic;color:var(--chandelle);text-shadow:0 0 34px rgba(245,185,66,.45)}
-.lede{margin:18px auto 30px;font-size:15.5px;line-height:1.55;color:rgba(243,233,210,.82);max-width:32ch}
-.hint{margin-top:22px;font-size:12.5px;color:rgba(243,233,210,.5);line-height:1.5}
+/* ═══════════ Accueil : expérience immersive ═══════════ */
+#landing{position:fixed;inset:0;overflow:hidden;z-index:30;background:var(--nuit-2);
+  touch-action:pan-y;user-select:none;-webkit-user-select:none}
 
-/* Portrait de Frédéric sur l'accueil : flotte dans une aura de chandelle */
-.frederic-portrait{position:relative;width:clamp(120px,34vw,170px);margin:0 auto 18px;aspect-ratio:399/907}
+/* Héro plein écran avec Ken Burns lent */
+.hero-bg{position:absolute;inset:-6%;z-index:0;will-change:transform}
+.hero-bg img{width:100%;height:100%;object-fit:cover;object-position:center 38%;
+  animation:kenburns 26s ease-in-out infinite alternate}
+@keyframes kenburns{
+  0%{transform:scale(1.02) translate(0,0)}
+  100%{transform:scale(1.14) translate(-1.6%,2.2%)}}
+/* Voile nuit d'encre pour la lisibilité */
+.hero-veil{position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(180deg,
+    rgba(14,21,38,.42) 0%, rgba(14,21,38,.06) 30%,
+    rgba(14,21,38,.24) 55%, rgba(14,21,38,.82) 82%, var(--nuit-2) 100%)}
+#magic-canvas{position:absolute;inset:0;z-index:4;pointer-events:none;width:100%;height:100%}
+
+.landing-inner{position:relative;z-index:5;height:100%;overflow-y:auto;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:max(24px,env(safe-area-inset-top)) 22px max(20px,env(safe-area-inset-bottom))}
+@supports (height:100dvh){.landing-inner{height:100dvh}}
+
+/* Carte souvenir (village 1850) façon vieille carte postale */
+.souvenir-card{position:absolute;top:max(14px,env(safe-area-inset-top));right:10px;z-index:6;
+  width:clamp(96px,27vw,150px);padding:7px 7px 22px;margin:0;
+  background:var(--parchemin);border-radius:4px;
+  box-shadow:0 10px 28px rgba(0,0,0,.5), inset 0 0 0 1px rgba(201,138,75,.5);
+  transform:rotate(6deg);will-change:transform;
+  transition:transform .3s ease}
+.souvenir-card:active{transform:rotate(2deg) scale(1.06)}
+.souvenir-card img{display:block;width:100%;aspect-ratio:1080/1111;object-fit:cover;
+  border-radius:2px;filter:sepia(.22) saturate(.92)}
+.souvenir-card figcaption{position:absolute;left:0;right:0;bottom:3px;
+  font-family:var(--display);font-style:italic;font-size:10.5px;color:#5A4326;line-height:1}
+
+.eyebrow{font-size:11.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--chandelle);
+  margin-bottom:12px;text-shadow:0 2px 12px rgba(0,0,0,.7)}
+#landing h1{font-family:var(--display);font-weight:600;font-size:clamp(46px,13.5vw,72px);
+  line-height:.95;color:var(--parchemin);text-shadow:0 3px 22px rgba(0,0,0,.65)}
+#landing h1 em{font-style:italic;color:var(--chandelle);text-shadow:0 0 34px rgba(245,185,66,.5)}
+/* Lettres animées au chargement (générées par landing.js) */
+#landing h1 .lt{display:inline-block;opacity:0;transform:translateY(.55em) rotate(4deg);
+  animation:letterIn .7s cubic-bezier(.2,.8,.25,1) forwards;animation-delay:var(--d,0s)}
+@keyframes letterIn{to{opacity:1;transform:none}}
+.reveal{opacity:0;animation:fadeUp .9s ease forwards}
+.eyebrow.reveal{animation-delay:.15s}
+.lede.reveal{animation-delay:1.1s}
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.lede{margin:16px auto 26px;font-size:15.5px;line-height:1.55;max-width:32ch;
+  color:rgba(243,233,210,.92);text-shadow:0 2px 14px rgba(0,0,0,.7)}
+/* Mots-clés surlignés or au toucher */
+.kw{position:relative;font-weight:800;color:var(--chandelle);cursor:pointer;
+  border-bottom:1px dashed rgba(245,185,66,.55);transition:text-shadow .25s ease, color .25s ease}
+.kw.lit,.kw:active{color:#FFD97A;text-shadow:0 0 18px rgba(245,185,66,.9)}
+.hint{margin-top:20px;font-size:12.5px;line-height:1.55;color:rgba(243,233,210,.62);
+  text-shadow:0 2px 10px rgba(0,0,0,.7)}
+
+/* Portrait de Frédéric : flotte, aura respirante, tilt 3D piloté par landing.js */
+.frederic-portrait{position:relative;width:clamp(104px,26vw,150px);margin:0 auto 14px;
+  aspect-ratio:399/907;will-change:transform;transform-style:preserve-3d}
 .frederic-portrait img{position:relative;z-index:2;width:100%;height:100%;object-fit:contain;
-  filter:drop-shadow(0 14px 30px rgba(0,0,0,.55)) drop-shadow(0 0 18px rgba(245,185,66,.22));
+  filter:drop-shadow(0 14px 30px rgba(0,0,0,.6)) drop-shadow(0 0 18px rgba(245,185,66,.24));
   animation:floaty 5.2s ease-in-out infinite}
-@keyframes floaty{0%,100%{transform:translateY(0) rotate(-.6deg)}50%{transform:translateY(-12px) rotate(.8deg)}}
-/* Aura lumineuse derrière lui */
+@keyframes floaty{0%,100%{transform:translateY(0) rotate(-.6deg)}50%{transform:translateY(-11px) rotate(.8deg)}}
 .portrait-aura{position:absolute;left:50%;top:52%;width:230%;aspect-ratio:1;z-index:1;
   transform:translate(-50%,-50%);border-radius:50%;pointer-events:none;
-  background:radial-gradient(circle, rgba(245,185,66,.34) 0%, rgba(245,185,66,.12) 38%, transparent 68%);
-  animation:auraPulse 4.2s ease-in-out infinite}
-@keyframes auraPulse{0%,100%{opacity:.75;transform:translate(-50%,-50%) scale(1)}50%{opacity:1;transform:translate(-50%,-50%) scale(1.09)}}
-/* Étincelles autour du portrait */
+  background:radial-gradient(circle, rgba(245,185,66,.36) 0%, rgba(245,185,66,.13) 38%, transparent 68%);
+  animation:auraBreath 4.2s ease-in-out infinite}
+/* Respiration : opacité + échelle + halo qui s'élargit */
+@keyframes auraBreath{
+  0%,100%{opacity:.7;transform:translate(-50%,-50%) scale(1)}
+  50%{opacity:1;transform:translate(-50%,-50%) scale(1.13)}}
 .portrait-sparkles{position:absolute;inset:-14%;z-index:3;pointer-events:none;
   background-image:radial-gradient(3px 3px at 12% 30%, rgba(255,224,150,.95), transparent 60%),
     radial-gradient(2.5px 2.5px at 86% 22%, rgba(255,224,150,.9), transparent 60%),
@@ -51,32 +100,58 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
     radial-gradient(2px 2px at 50% 6%, rgba(245,185,66,.8), transparent 60%);
   animation:sparkleDrift 3.6s ease-in-out infinite alternate}
 @keyframes sparkleDrift{from{opacity:.5;transform:translateY(2px) scale(.97)}to{opacity:1;transform:translateY(-4px) scale(1.02)}}
-@media (prefers-reduced-motion:reduce){
-  .frederic-portrait img,.portrait-aura,.portrait-sparkles{animation:none}}
 
-/* Bouton sceau de cire */
-.wax-seal{display:inline-flex;flex-direction:column;align-items:center;gap:6px;
+/* ═════ Sceau de cire interactif (press & hold) ═════ */
+.wax-seal{--hold:0;position:relative;display:grid;place-items:center;
   width:132px;height:132px;border-radius:50%;color:var(--parchemin);
+  transition:transform .18s ease;touch-action:none}
+.wax-seal .seal-core{grid-area:1/1;display:flex;flex-direction:column;align-items:center;gap:5px;
+  width:112px;height:112px;border-radius:50%;padding:10px;place-content:center;
   background:radial-gradient(circle at 34% 30%, #C4503B 0%, var(--cire) 42%, var(--cire-fonce) 100%);
-  box-shadow:0 10px 34px rgba(166,58,43,.45), inset 0 2px 8px rgba(255,255,255,.22), inset 0 -8px 16px rgba(0,0,0,.34);
-  font-weight:800;font-size:14.5px;letter-spacing:.02em;
-  transition:transform .18s ease, box-shadow .18s ease}
-.wax-seal:active{transform:scale(.94)}
-.wax-seal span{max-width:90px;line-height:1.15}
+  box-shadow:0 10px 34px rgba(166,58,43,.5), inset 0 2px 8px rgba(255,255,255,.22), inset 0 -8px 16px rgba(0,0,0,.34),
+    0 0 calc(var(--hold)*46px) rgba(255,120,60,calc(var(--hold)*.85));
+  font-weight:800;font-size:13.5px;letter-spacing:.02em;
+  transform:scale(calc(1 - var(--hold)*.05));
+  transition:transform .1s linear}
+.wax-seal:active .seal-core{transform:scale(.94)}
+.seal-label{max-width:88px;line-height:1.15}
+/* Jauge circulaire qui se remplit pendant le maintien */
+.seal-ring{grid-area:1/1;width:132px;height:132px;transform:rotate(-90deg);pointer-events:none}
+.seal-ring circle{fill:none;stroke-width:4}
+.ring-track{stroke:rgba(243,233,210,.16)}
+.ring-fill{stroke:var(--chandelle);stroke-linecap:round;
+  stroke-dasharray:289;stroke-dashoffset:calc(289px - 289px * var(--hold));
+  filter:drop-shadow(0 0 6px rgba(245,185,66,.8))}
+/* Flash doré + ondulation au cachetage */
+.wax-seal.stamped::after{content:"";position:absolute;inset:-14px;border-radius:50%;
+  border:3px solid rgba(245,185,66,.9);animation:sealRipple .55s ease-out forwards;pointer-events:none}
+.wax-seal.stamped .seal-core{animation:sealFlash .5s ease-out}
+@keyframes sealRipple{from{transform:scale(.7);opacity:1}to{transform:scale(1.55);opacity:0}}
+@keyframes sealFlash{0%{filter:brightness(1)}25%{filter:brightness(1.9) saturate(1.3)}100%{filter:brightness(1)}}
 .ghost-link{display:block;margin:20px auto 0;font-size:13.5px;font-weight:600;
-  color:var(--cuivre);text-decoration:underline;text-underline-offset:4px}
+  color:var(--chandelle);text-decoration:underline;text-underline-offset:4px;
+  text-shadow:0 2px 10px rgba(0,0,0,.7)}
 
-/* Champ de chandelles flottantes */
-.candle-field{position:absolute;inset:0;overflow:hidden;pointer-events:none}
-.candle-field::before,.candle-field::after{content:"";position:absolute;width:5px;height:5px;border-radius:50%;
-  background:var(--chandelle);box-shadow:
-   14vw 78vh 6px 2px rgba(245,185,66,.55), 78vw 66vh 5px 1px rgba(245,185,66,.4),
-   30vw 88vh 8px 3px rgba(245,185,66,.5), 60vw 82vh 4px 1px rgba(245,185,66,.35),
-   88vw 86vh 7px 2px rgba(245,185,66,.45), 8vw 60vh 4px 1px rgba(245,185,66,.3);
-  animation:flicker 3.4s ease-in-out infinite alternate}
-.candle-field::after{animation-delay:1.7s;transform:translateX(4vw)}
-@keyframes flicker{from{opacity:.75;filter:blur(.4px)}to{opacity:1;filter:blur(0)}}
-@media (prefers-reduced-motion:reduce){.candle-field::before,.candle-field::after{animation:none}}
+/* Écrans larges : la carte souvenir devient plus présente */
+@media (min-width:760px){
+  .souvenir-card{right:6%;top:12%;width:clamp(150px,18vw,220px)}
+}
+/* Petites hauteurs : resserrer */
+@media (max-height:640px){
+  .frederic-portrait{width:clamp(76px,18vh,110px)}
+  .wax-seal{width:112px;height:112px}
+  .wax-seal .seal-core{width:94px;height:94px;font-size:12px}
+  .seal-ring{width:112px;height:112px}
+  .lede{margin:10px auto 16px}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .hero-bg img,.frederic-portrait img,.portrait-aura,.portrait-sparkles,
+  .wax-seal.stamped::after,.wax-seal.stamped .seal-core{animation:none}
+  #landing h1 .lt{opacity:1;transform:none;animation:none}
+  .reveal{opacity:1;animation:none}
+  .souvenir-card{transition:none}
+}
 
 /* ═══════════ Scène AR ═══════════ */
 #ar-stage{position:fixed;inset:0}
