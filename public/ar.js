@@ -25,6 +25,7 @@ let anchorGroup;              // groupe attaché au marqueur (ou au monde en dé
 let particles;                // système de particules "flammes de chandelle"
 let revealT = -1;             // progression de l'apparition magique
 let talking = false;
+let bookMode = false;         // true = ancré au livre (pas de billboard total)
 
 /* ─────────────────────────── Personnage procédural ─────────────────────────── */
 /* Frédéric = billboard illustré (l'illustration du livre, façon conte animé "cut-out").
@@ -42,6 +43,8 @@ function buildFrederic() {
   });
   const plane = new THREE.Mesh(geo, mat);
   plane.position.y = H / 2;          // pose les pieds au sol
+  plane.renderOrder = 2;             // toujours rendu au-dessus de la couverture
+  mat.depthTest = false;             // pas de conflit de profondeur avec le livre
   g.add(plane);
 
   // Ombre douce au sol
@@ -193,18 +196,24 @@ function tick(dt, t) {
     if (particles) particles.material.size = 0.035 + (1 - e) * 0.09;
   }
 
-  // Vie du billboard illustré : respire, se balance, fait face à la caméra, "parle"
+  // Vie du billboard illustré : respire, se balance, "parle"
   if (u?.billboard) {
     const bob = Math.sin(t * 1.6) * 0.014;                 // respiration verticale
     const sway = Math.sin(t * 0.9) * 0.03;                 // léger balancement
     frederic.position.y = bob;
     u.plane.rotation.z = sway;
-    // face-caméra (billboard) autour de l'axe vertical, en douceur
-    if (camera) {
+
+    if (bookMode) {
+      // Ancré au livre : Fred reste PLANTÉ debout sur la couverture, il ne pivote pas.
+      // On le laisse regarder à peine à gauche/droite pour la vie, sans casser l'ancrage.
+      frederic.rotation.y = Math.sin(t * 0.5) * 0.12;
+    } else if (camera) {
+      // Mode démo (flottant) : billboard doux face à la caméra
       const target = Math.atan2(camera.position.x - frederic.position.x,
                                 camera.position.z - frederic.position.z);
       frederic.rotation.y += (target - frederic.rotation.y) * 0.08;
     }
+
     // parle : petit rebond énergique + pulsation d'échelle
     if (talking) {
       frederic.position.y = bob + Math.abs(Math.sin(t * 9)) * 0.03;
@@ -234,7 +243,18 @@ async function startBookMode() {
   ({ renderer, scene, camera } = mindar);
   const anchor = mindar.addAnchor(0);
   buildSceneContent(anchor.group);
-  anchorGroup.rotation.x = -Math.PI / 2 * 0;   // MindAR : le plan cible est déjà orienté
+
+  // MindAR : le repère de l'ancre a le plan du livre dans le plan XY (Z sort de la couverture).
+  // On redresse tout le groupe de -90° sur X pour que "debout" pointe hors de la page,
+  // et que le sol du personnage coïncide avec la surface du livre.
+  anchorGroup.rotation.x = -Math.PI / 2;
+
+  // Taille & position relatives à la cible (la largeur cible MindAR = 1 unité).
+  // Fred fait ~0.85 de haut = il domine gentiment la couverture sans la masquer,
+  // posé légèrement vers le haut du livre pour laisser voir le titre.
+  anchorGroup.scale.setScalar(0.85);
+  anchorGroup.position.set(0, 0.12, 0);
+  bookMode = true;
 
   anchor.onTargetFound = () => {
     scanGuide.hidden = true;
