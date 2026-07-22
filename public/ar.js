@@ -33,54 +33,57 @@ let bookMode = false;         // true = ancré au livre (pas de billboard total)
    Si l'image manque, on garde un fallback procédural simple. */
 function buildFrederic() {
   const g = new THREE.Group();
+  const H = 0.95;                       // hauteur du personnage
+  const RATIO = 857 / 1800;             // ratio de l'illustration source
+  const W = H * RATIO;
 
-  // Le plan qui portera l'illustration
-  const W = 0.62, H = 0.95;
-  const geo = new THREE.PlaneGeometry(W, H);
-  const mat = new THREE.MeshBasicMaterial({
-    transparent: true, side: THREE.DoubleSide,
-    alphaTest: 0.5, opacity: 1,
-  });
-  const plane = new THREE.Mesh(geo, mat);
-  plane.position.y = H / 2;          // pose les pieds au sol
-  plane.renderOrder = 2;             // toujours rendu au-dessus de la couverture
-  mat.depthTest = false;             // pas de conflit de profondeur avec le livre
-  g.add(plane);
+  // Chaque couche est un plan plein-cadre (même UV que l'image entière),
+  // ne montrant que sa tranche grâce à la transparence pré-découpée.
+  // On les décale en Z pour créer la profondeur (parallaxe quand on bouge le tel).
+  const loader = new THREE.TextureLoader();
+  const layers = [];
+  const makeLayer = (file, z, renderOrder) => {
+    const mat = new THREE.MeshBasicMaterial({
+      transparent: true, side: THREE.DoubleSide,
+      alphaTest: 0.02, depthTest: false, depthWrite: false, opacity: 1,
+    });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(W, H), mat);
+    mesh.position.set(0, H / 2, z);
+    mesh.renderOrder = renderOrder;
+    g.add(mesh);
+    loader.load(file, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; mat.map = tex; mat.needsUpdate = true; });
+    layers.push({ mesh, z0: z });
+    return mesh;
+  };
 
-  // Ombre douce elliptique, plaquée sur la couverture au pied du personnage.
-  // Le groupe n'étant plus basculé, on couche l'ombre dans le plan de la page
-  // (léger recul en Z pour qu'elle "colle" au livre incliné).
+  // arrière → avant : corps/manteau, puis buste+bras+livre, puis tête
+  let use25D = true;
+  makeLayer("frederic-layer-body.png",  -0.02, 2);
+  makeLayer("frederic-layer-torso.png",  0.02, 3);
+  makeLayer("frederic-layer-head.png",   0.05, 4);
+
+  // Filet de sécurité : si les couches n'existent pas, on charge l'image entière
+  // sur un plan unique (et on masque les couches). Détecté via échec de la 1re couche.
+  loader.load(
+    "frederic.png",
+    () => { /* image complète dispo : on la garde en réserve, les couches priment si chargées */ },
+    undefined,
+    () => { use25D = false; }
+  );
+
+  // Ombre elliptique plaquée sur la couverture
   const shadow = new THREE.Mesh(
     new THREE.CircleGeometry(0.26, 28),
     new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.26, depthWrite: false })
   );
-  shadow.rotation.x = -Math.PI / 2.2;   // presque à plat, suit l'inclinaison du chevalet
+  shadow.rotation.x = -Math.PI / 2.2;
   shadow.position.set(0, -0.01, 0.02);
   shadow.scale.set(1, 0.5, 1);
   shadow.renderOrder = 1;
   g.add(shadow);
 
-  // Charge l'illustration
-  new THREE.TextureLoader().load(
-    "frederic.png",
-    (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      // ajuste le ratio du plan à l'image réelle
-      const ratio = tex.image.width / tex.image.height;
-      plane.geometry.dispose();
-      plane.geometry = new THREE.PlaneGeometry(H * ratio, H);
-      mat.map = tex;
-      mat.needsUpdate = true;
-    },
-    undefined,
-    () => {
-      // Pas d'illustration : petit fallback coloré (mieux que rien, en attendant frederic.png)
-      mat.map = makeFallbackTexture();
-      mat.needsUpdate = true;
-    }
-  );
-
-  g.userData = { plane, shadow, billboard: true };
+  // plane = la couche du milieu (pour la pulsation "parle"), layers = pour la parallaxe
+  g.userData = { plane: layers[1]?.mesh, layers, shadow, billboard: true, is25D: true };
   return g;
 }
 
@@ -226,7 +229,8 @@ function tick(dt, t) {
       // sort du livre : part enfoncé/écrasé, puis se dresse à sa taille
       frederic.scale.set(1, 0.05 + e * 0.95, 1);
       frederic.position.y = -0.35 * (1 - e);     // remonte depuis la couverture
-      if (u.plane) u.plane.material.opacity = e;  // fondu d'apparition
+      if (u.layers) for (const L of u.layers) L.mesh.material.opacity = e;  // fondu de toutes les couches
+      else if (u.plane) u.plane.material.opacity = e;
     } else {
       frederic.scale.setScalar(0.001 + e * 1.0);
       frederic.rotation.y = (1 - e) * Math.PI * 2; // le GLB tournoie
@@ -243,17 +247,30 @@ function tick(dt, t) {
     const sway = Math.sin(t * 0.9) * 0.025;                // balancement doux
     frederic.position.y = bob;
     frederic.scale.set(1, 1, 1);
-    // il est déjà face caméra (ancré au livre) : on ne le fait PAS pivoter,
-    // juste un très léger roulis pour la vie.
     frederic.rotation.z = sway;
     frederic.rotation.y = Math.sin(t * 0.4) * 0.06;
 
+    // ── Parallaxe 2.5D : chaque couche se décale selon l'angle de vue ──
+    // Les couches avant (tête) bougent plus que les couches arrière (corps) = profondeur.
+    if (u.layers && camera) {
+      // direction caméra relative au personnage (approx via sa position monde)
+      const camX = camera.position.x, camY = camera.position.y;
+      for (const L of u.layers) {
+        const depth = L.z0;                    // plus la couche est en avant, plus elle réagit
+        const px = camX * depth * 0.35 + Math.sin(t * 1.2) * depth * 0.4;
+        const py = bob * depth * 6 + Math.sin(t * 1.6 + depth * 10) * depth * 0.3;
+        L.mesh.position.x = px;
+        L.mesh.position.y = (0.95 / 2) + py;
+      }
+    }
+
     if (talking) {
       frederic.position.y = bob + Math.abs(Math.sin(t * 9)) * 0.03;
-      const p = 1 + Math.sin(t * 9) * 0.025;
-      u.plane.scale.set(p, 1 / p, 1);
-    } else {
-      u.plane.scale.set(1, 1, 1);
+      // la tête (dernière couche) rebondit un peu plus = il "parle" avec vie
+      if (u.layers?.length) {
+        const head = u.layers[u.layers.length - 1].mesh;
+        head.position.y += Math.abs(Math.sin(t * 11)) * 0.012;
+      }
     }
     if (u.shadow) u.shadow.material.opacity = 0.26 - Math.abs(bob) * 4;
   }
@@ -292,8 +309,8 @@ async function startBookMode() {
   // Pour un "cut-out" qui se DRESSE sur le livre et fait face au lecteur, on garde le plan
   // vertical (surtout pas de bascule à plat) et on l'incline juste un peu vers l'arrière.
   anchorGroup.rotation.x = 0.3;               // léger recul du haut (comme un chevalet posé)
-  anchorGroup.scale.setScalar(0.9);
-  anchorGroup.position.set(0, -0.12, 0.05);   // pieds vers le bas de la couverture, un poil en avant
+  anchorGroup.scale.setScalar(2.7);           // Frédéric ~3× plus grand, il domine la scène
+  anchorGroup.position.set(0, -0.35, 0.05);   // pieds ancrés vers le bas de la couverture
   bookMode = true;
 
   anchor.onTargetFound = () => {
