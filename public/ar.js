@@ -27,74 +27,80 @@ let revealT = -1;             // progression de l'apparition magique
 let talking = false;
 
 /* ─────────────────────────── Personnage procédural ─────────────────────────── */
+/* Frédéric = billboard illustré (l'illustration du livre, façon conte animé "cut-out").
+   Utilise public/frederic.png (l'illustration détourée sur fond transparent).
+   Si l'image manque, on garde un fallback procédural simple. */
 function buildFrederic() {
   const g = new THREE.Group();
-  const M = (color, opts = {}) =>
-    new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0.05, ...opts });
 
-  const bleu = M(0x1f4d7a), bleuNuit = M(0x16385c), jaune = M(0xe8c76a);
-  const peau = M(0xf0c8a0), cheveux = M(0x9a4f22), brun = M(0x3a2a1c);
-  const blanc = M(0xf3e9d2), noir = M(0x1a1a1a), cuir = M(0x5c3a22);
-  const livre = M(0x7e2b20), page = M(0xf3e9d2, { roughness: 0.9 });
+  // Le plan qui portera l'illustration
+  const W = 0.62, H = 0.95;
+  const geo = new THREE.PlaneGeometry(W, H);
+  const mat = new THREE.MeshBasicMaterial({
+    transparent: true, side: THREE.DoubleSide,
+    alphaTest: 0.5, opacity: 1,
+  });
+  const plane = new THREE.Mesh(geo, mat);
+  plane.position.y = H / 2;          // pose les pieds au sol
+  g.add(plane);
 
-  const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0, parent = g) => {
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(x, y, z); m.rotation.set(rx, ry, rz);
-    parent.add(m); return m;
-  };
+  // Ombre douce au sol
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.22, 24),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28 })
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.002;
+  shadow.scale.set(1, 0.6, 1);
+  g.add(shadow);
 
-  // Jambes + bottes
-  add(new THREE.CylinderGeometry(0.055, 0.065, 0.42, 10), brun, -0.075, 0.21, 0);
-  add(new THREE.CylinderGeometry(0.055, 0.065, 0.42, 10), brun,  0.075, 0.21, 0);
-  add(new THREE.BoxGeometry(0.11, 0.07, 0.19), cuir, -0.075, 0.035, 0.03);
-  add(new THREE.BoxGeometry(0.11, 0.07, 0.19), cuir,  0.075, 0.035, 0.03);
+  // Charge l'illustration
+  new THREE.TextureLoader().load(
+    "frederic.png",
+    (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      // ajuste le ratio du plan à l'image réelle
+      const ratio = tex.image.width / tex.image.height;
+      plane.geometry.dispose();
+      plane.geometry = new THREE.PlaneGeometry(H * ratio, H);
+      mat.map = tex;
+      mat.needsUpdate = true;
+    },
+    undefined,
+    () => {
+      // Pas d'illustration : petit fallback coloré (mieux que rien, en attendant frederic.png)
+      mat.map = makeFallbackTexture();
+      mat.needsUpdate = true;
+    }
+  );
 
-  // Torse : gilet jaune + chemise
-  const torso = add(new THREE.CylinderGeometry(0.13, 0.155, 0.34, 12), jaune, 0, 0.59, 0);
-  add(new THREE.CylinderGeometry(0.065, 0.075, 0.1, 10), blanc, 0, 0.79, 0);
-  // Cravate noire
-  add(new THREE.BoxGeometry(0.05, 0.12, 0.02), noir, 0, 0.72, 0.125);
-
-  // Redingote : deux pans + dos
-  add(new THREE.CylinderGeometry(0.145, 0.19, 0.36, 12, 1, true, Math.PI * 0.62, Math.PI * 1.76), bleu, 0, 0.58, -0.005);
-  const panL = add(new THREE.BoxGeometry(0.075, 0.34, 0.03), bleuNuit, -0.1, 0.28, -0.055, 0.12, 0, 0.08);
-  const panR = add(new THREE.BoxGeometry(0.075, 0.34, 0.03), bleuNuit,  0.1, 0.28, -0.055, 0.12, 0, -0.08);
-  // Col
-  add(new THREE.TorusGeometry(0.085, 0.022, 8, 14, Math.PI), bleuNuit, 0, 0.77, 0.01, Math.PI * 0.5, 0, 0);
-
-  // Tête + visage
-  const head = new THREE.Group(); head.position.set(0, 0.92, 0); g.add(head);
-  add(new THREE.SphereGeometry(0.105, 18, 14), peau, 0, 0, 0, 0, 0, 0, head);
-  // Chevelure rousse ébouriffée
-  add(new THREE.SphereGeometry(0.112, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), cheveux, 0, 0.022, -0.012, -0.15, 0, 0, head);
-  add(new THREE.SphereGeometry(0.045, 8, 6), cheveux, -0.08, 0.06, 0.02, 0, 0, 0, head);
-  add(new THREE.SphereGeometry(0.045, 8, 6), cheveux,  0.08, 0.055, 0.03, 0, 0, 0, head);
-  add(new THREE.SphereGeometry(0.04, 8, 6), cheveux, 0, 0.1, 0.05, 0, 0, 0, head);
-  // Favoris (rouflaquettes d'époque !)
-  add(new THREE.BoxGeometry(0.02, 0.07, 0.03), cheveux, -0.098, -0.02, 0.02, 0, 0, 0.1, head);
-  add(new THREE.BoxGeometry(0.02, 0.07, 0.03), cheveux,  0.098, -0.02, 0.02, 0, 0, -0.1, head);
-  // Yeux + sourire
-  add(new THREE.SphereGeometry(0.011, 8, 6), noir, -0.038, 0.012, 0.098, 0, 0, 0, head);
-  add(new THREE.SphereGeometry(0.011, 8, 6), noir,  0.038, 0.012, 0.098, 0, 0, 0, head);
-  const mouth = add(new THREE.TorusGeometry(0.024, 0.006, 6, 10, Math.PI), M(0xa05a48), 0, -0.045, 0.095, Math.PI, 0, 0, head);
-
-  // Bras gauche : tient le livre ouvert
-  const armL = new THREE.Group(); armL.position.set(-0.15, 0.72, 0); g.add(armL);
-  add(new THREE.CylinderGeometry(0.035, 0.03, 0.24, 8), bleu, -0.03, -0.1, 0.09, 0.9, 0, 0.5, armL);
-  const book = new THREE.Group(); book.position.set(-0.02, -0.16, 0.22); book.rotation.set(-0.5, 0.15, 0); armL.add(book);
-  add(new THREE.BoxGeometry(0.16, 0.02, 0.12), livre, 0, 0, 0, 0, 0, 0, book);
-  add(new THREE.BoxGeometry(0.15, 0.012, 0.11), page, 0, 0.014, 0, 0, 0, 0.06, book);
-
-  // Bras droit : plume levée
-  const armR = new THREE.Group(); armR.position.set(0.15, 0.72, 0); g.add(armR);
-  add(new THREE.CylinderGeometry(0.035, 0.03, 0.22, 8), bleu, 0.04, -0.08, 0.08, 0.7, 0, -0.7, armR);
-  const quill = new THREE.Group(); quill.position.set(0.1, -0.13, 0.18); armR.add(quill);
-  add(new THREE.ConeGeometry(0.018, 0.16, 6), blanc, 0, 0.08, 0, 0, 0, 0.25, quill);
-  add(new THREE.CylinderGeometry(0.004, 0.004, 0.05, 5), cuir, 0.012, -0.02, 0, 0, 0, 0.25, quill);
-
-  g.userData = { head, mouth, armR, panL, panR };
-  g.scale.setScalar(1.15);
+  g.userData = { plane, shadow, billboard: true };
   return g;
+}
+
+/* Texture de secours dessinée sur un canvas : une silhouette d'époque stylisée
+   (redingote bleue, gilet jaune) — utilisée seulement si frederic.png est absent. */
+function makeFallbackTexture() {
+  const c = document.createElement("canvas");
+  c.width = 256; c.height = 384;
+  const x = c.getContext("2d");
+  // redingote
+  x.fillStyle = "#1f4d7a";
+  x.beginPath();
+  x.moveTo(128, 70); x.lineTo(196, 130); x.lineTo(180, 340); x.lineTo(76, 340); x.lineTo(60, 130);
+  x.closePath(); x.fill();
+  // gilet jaune
+  x.fillStyle = "#e8c76a";
+  x.beginPath(); x.moveTo(128, 110); x.lineTo(160, 150); x.lineTo(150, 250); x.lineTo(106, 250); x.lineTo(96, 150); x.closePath(); x.fill();
+  // tête
+  x.fillStyle = "#f0c8a0"; x.beginPath(); x.arc(128, 60, 34, 0, Math.PI * 2); x.fill();
+  // cheveux roux
+  x.fillStyle = "#9a4f22"; x.beginPath(); x.arc(128, 46, 36, Math.PI, 0); x.fill();
+  // cravate
+  x.fillStyle = "#1a1a1a"; x.fillRect(122, 96, 12, 30);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 /* ─────────────────────── Particules : flammes de chandelle ─────────────────────── */
@@ -176,31 +182,38 @@ function buildSceneContent(parent) {
 
 /* ─────────────────────────── Animation ─────────────────────────── */
 function tick(dt, t) {
+  const u = frederic?.userData;
+
   // Apparition magique
   if (revealT >= 0 && revealT < 1) {
     revealT = Math.min(1, revealT + dt / 1.4);
     const e = 1 - Math.pow(1 - revealT, 3);      // ease-out cubic
-    frederic.scale.setScalar(0.001 + e * 1.149);
-    frederic.rotation.y = (1 - e) * Math.PI * 2;
+    frederic.scale.setScalar(0.001 + e * 1.0);
+    if (!u?.billboard) frederic.rotation.y = (1 - e) * Math.PI * 2;  // le GLB tournoie
     if (particles) particles.material.size = 0.035 + (1 - e) * 0.09;
   }
 
-  // Vie du personnage procédural
-  const u = frederic?.userData;
-  if (u?.head) {
-    frederic.position.y = Math.sin(t * 1.6) * 0.012;              // respiration
-    u.head.rotation.y = Math.sin(t * 0.6) * 0.22;                 // regarde autour
-    u.head.rotation.x = Math.sin(t * 0.9) * 0.05;
-    u.armR.rotation.z = Math.sin(t * 1.1) * 0.12;                 // plume vivante
-    u.panL.rotation.x = 0.12 + Math.sin(t * 1.4) * 0.04;          // pans au vent
-    u.panR.rotation.x = 0.12 + Math.cos(t * 1.3) * 0.04;
-    if (talking) {
-      u.mouth.scale.y = 0.6 + Math.abs(Math.sin(t * 14)) * 1.4;   // bouche animée
-      u.head.rotation.z = Math.sin(t * 5) * 0.04;
-      u.armR.rotation.x = Math.sin(t * 4) * 0.2;                  // gestes
-    } else {
-      u.mouth.scale.y = 1;
+  // Vie du billboard illustré : respire, se balance, fait face à la caméra, "parle"
+  if (u?.billboard) {
+    const bob = Math.sin(t * 1.6) * 0.014;                 // respiration verticale
+    const sway = Math.sin(t * 0.9) * 0.03;                 // léger balancement
+    frederic.position.y = bob;
+    u.plane.rotation.z = sway;
+    // face-caméra (billboard) autour de l'axe vertical, en douceur
+    if (camera) {
+      const target = Math.atan2(camera.position.x - frederic.position.x,
+                                camera.position.z - frederic.position.z);
+      frederic.rotation.y += (target - frederic.rotation.y) * 0.08;
     }
+    // parle : petit rebond énergique + pulsation d'échelle
+    if (talking) {
+      frederic.position.y = bob + Math.abs(Math.sin(t * 9)) * 0.03;
+      const p = 1 + Math.sin(t * 9) * 0.02;
+      u.plane.scale.set(p, 1 / p, 1);
+    } else {
+      u.plane.scale.set(1, 1, 1);
+    }
+    if (u.shadow) u.shadow.material.opacity = 0.28 - Math.abs(bob) * 4;
   }
   if (mixer) mixer.update(dt);
 

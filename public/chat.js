@@ -15,10 +15,17 @@ let voiceFR = null;
 export function initChat(opts = {}) {
   onTalkingChange = opts.onTalkingChange || (() => {});
 
-  // Précharge une voix française pour le fallback
+  // Précharge une voix française MASCULINE pour le fallback (Frédéric est un homme)
   const pick = () => {
-    const vs = speechSynthesis.getVoices().filter((v) => v.lang.startsWith("fr"));
-    voiceFR = vs.find((v) => /google|thomas|amélie|audrey/i.test(v.name)) || vs[0] || null;
+    const fr = speechSynthesis.getVoices().filter((v) => v.lang && v.lang.toLowerCase().startsWith("fr"));
+    // 1) noms de voix masculines connues (Android/Chrome/iOS)
+    const maleNames = /thomas|nicolas|daniel|paul|henri|guillaume|mathieu|homme|\bmale\b|man|français.*4|fr-fr-x-frd|fr-fr-x-vlf/i;
+    // 2) noms féminins à EXCLURE explicitement
+    const femaleNames = /amélie|amelie|audrey|marie|julie|celine|céline|virginie|léa|lea|chloe|chloé|female|femme|woman|aurelie|aurélie/i;
+    voiceFR =
+      fr.find((v) => maleNames.test(v.name)) ||
+      fr.find((v) => !femaleNames.test(v.name)) ||   // à défaut, la première non-féminine
+      fr[0] || null;
   };
   pick();
   speechSynthesis.onvoiceschanged = pick;
@@ -113,7 +120,7 @@ export async function fredericSpeaks(text) {
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "fr-FR";
   if (voiceFR) u.voice = voiceFR;
-  u.rate = 0.96; u.pitch = 1.02;
+  u.rate = 0.95; u.pitch = 0.82;   // pitch bas = voix d'homme, même si le device n'a qu'une voix neutre
   u.onend = () => onTalkingChange(false);
   u.onerror = () => onTalkingChange(false);
   speechSynthesis.speak(u);
