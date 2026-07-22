@@ -1,8 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════
    /api/chat — Cloudflare Pages Function
-   Proxy vers l'API Anthropic. La clé reste côté serveur.
+   Proxy vers l'API Moonshot (Kimi). La clé reste côté serveur.
    Binding KV requis : FREDERIC_KV  (rate-limit par IP)
-   Secret requis     : ANTHROPIC_API_KEY
+   Secret requis     : MOONSHOT_API_KEY
+   Variable optionnelle : MOONSHOT_MODEL (défaut: moonshot-v1-8k)
    ═══════════════════════════════════════════════════════════════ */
 
 const SYSTEM_PROMPT = `Tu es Frédéric, le héros du livre pour enfants "Les petites leçons de Frédéric", inspiré de Frédéric Bastiat, économiste français né à Bayonne en 1801.
@@ -22,8 +23,8 @@ TES RÈGLES ABSOLUES :
 - Termine parfois (pas toujours) par une petite question pour faire réfléchir l'enfant.
 - Tu ne sors JAMAIS de ton personnage.`;
 
-const MAX_PER_DAY = 40;          // requêtes par IP et par jour
-const MAX_MSG_LEN = 500;         // longueur max d'une question
+const MAX_PER_DAY = 40;
+const MAX_MSG_LEN = 500;
 
 export async function onRequestPost({ request, env }) {
   const json = (obj, status = 200) =>
@@ -32,7 +33,6 @@ export async function onRequestPost({ request, env }) {
       headers: { "Content-Type": "application/json" },
     });
 
-  // ── Rate limit par IP (KV) ──
   try {
     const ip = request.headers.get("CF-Connecting-IP") || "anon";
     const day = new Date().toISOString().slice(0, 10);
@@ -42,44 +42,36 @@ export async function onRequestPost({ request, env }) {
       return json({ reply: "Oh là là, que de questions aujourd'hui ! Ma plume a besoin de repos. Reviens me voir demain, promis je serai là !" });
     }
     await env.FREDERIC_KV.put(key, String(count + 1), { expirationTtl: 90000 });
-  } catch { /* KV absent : on laisse passer, mais pense à créer le binding ! */ }
+  } catch { /* KV absent */ }
 
-  // ── Validation ──
   let body;
   try { body = await request.json(); } catch { return json({ error: "bad json" }, 400); }
-  const messages = (body.messages || [])
+  const clientMsgs = (body.messages || [])
     .filter((m) => ["user", "assistant"].includes(m.role) && typeof m.content === "string")
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_MSG_LEN) }))
     .slice(-12);
-  if (!messages.length) return json({ error: "no messages" }, 400);
+  if (!clientMsgs.length) return json({ error: "no messages" }, 400);
 
-  // ── Appel Claude ──
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
+  const messages = [{ role: "system", content: SYSTEM_PROMPT }, ...clientMsgs];
+
+  const model = env.MOONSHOT_MODEL || "moonshot-v1-8k";
+  const r = await fetch("https://api.moonshot.ai/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
+      "Authorization": `Bearer ${env.MOONSHOT_API_KEY}`,
     },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",   // rapide + économique, parfait pour 2-3 phrases
-      max_tokens: 220,
-      system: SYSTEM_PROMPT,
-      messages,
-    }),
+    body: JSON.stringify({ model, max_tokens: 220, temperature: 0.7, messages }),
   });
 
   if (!r.ok) {
-    console.error("Anthropic error", r.status, await r.text());
+    console.error("Moonshot error", r.status, await r.text());
     return json({ reply: "Ma plume a fait un pâté d'encre ! Repose-moi ta question dans un instant." });
   }
 
   const data = await r.json();
-  const reply = (data.content || [])
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join(" ")
-    .trim();
+  const reply = (data.choices?.[0]?.message?.content || "").trim()
+    || "Hum, ma plume s'est cassée… Repose-moi ta question, mon ami !";
 
   return json({ reply });
 }
