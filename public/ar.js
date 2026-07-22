@@ -204,17 +204,42 @@ function buildSceneContent(parent) {
   particles = buildParticles();
   anchorGroup.add(particles);
 
-  // Si un vrai modèle GLB existe, on remplace le personnage procédural
+  // Si un vrai modèle GLB existe (frederic.glb), il remplace le personnage 2.5D.
   new GLTFLoader().load(GLB_FILE, (gltf) => {
+    const model = gltf.scene;
+
+    // 1) Normaliser la taille : Tripo/Meshy exportent à des échelles très variables.
+    //    On mesure la bounding box et on ramène la hauteur à ~1 unité (= même repère que la 2.5D).
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3(); box.getSize(size);
+    const center = new THREE.Vector3(); box.getCenter(center);
+    const targetH = 1.0;
+    const s = size.y > 0 ? targetH / size.y : 1;
+    model.scale.setScalar(s);
+
+    // 2) Recentrer horizontalement et poser les pieds au sol (y=0).
+    model.position.x = -center.x * s;
+    model.position.z = -center.z * s;
+    model.position.y = -box.min.y * s;
+
+    // 3) Enrober dans un groupe pour garder les mêmes userData/animation que la 2.5D.
+    const wrap = new THREE.Group();
+    wrap.add(model);
+    wrap.userData = { model, glb: true, is3D: true };
+
     anchorGroup.remove(frederic);
-    frederic = gltf.scene;
-    frederic.scale.setScalar(0.001);
+    frederic = wrap;
+    frederic.scale.setScalar(0.001);   // apparaîtra en grandissant
     anchorGroup.add(frederic);
+
+    // 4) Animations : joue "idle" en priorité, sinon la première dispo.
     if (gltf.animations?.length) {
-      mixer = new THREE.AnimationMixer(frederic);
-      mixer.clipAction(gltf.animations[0]).play();
+      mixer = new THREE.AnimationMixer(model);
+      const idle = gltf.animations.find((a) => /idle|breath|stand/i.test(a.name)) || gltf.animations[0];
+      mixer.clipAction(idle).play();
     }
-  }, undefined, () => { /* pas de GLB : le personnage procédural reste — parfait */ });
+    revealT = Math.max(revealT, 0);   // relance l'apparition avec le modèle 3D
+  }, undefined, () => { /* pas de GLB : la 2.5D reste — parfait */ });
 }
 
 /* ─────────────────────────── Animation ─────────────────────────── */
