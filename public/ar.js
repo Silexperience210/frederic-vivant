@@ -47,14 +47,17 @@ function buildFrederic() {
   mat.depthTest = false;             // pas de conflit de profondeur avec le livre
   g.add(plane);
 
-  // Ombre douce au sol
+  // Ombre douce elliptique, plaquée sur la couverture au pied du personnage.
+  // Le groupe n'étant plus basculé, on couche l'ombre dans le plan de la page
+  // (léger recul en Z pour qu'elle "colle" au livre incliné).
   const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.22, 24),
-    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28 })
+    new THREE.CircleGeometry(0.26, 28),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.26, depthWrite: false })
   );
-  shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.002;
-  shadow.scale.set(1, 0.6, 1);
+  shadow.rotation.x = -Math.PI / 2.2;   // presque à plat, suit l'inclinaison du chevalet
+  shadow.position.set(0, -0.01, 0.02);
+  shadow.scale.set(1, 0.5, 1);
+  shadow.renderOrder = 1;
   g.add(shadow);
 
   // Charge l'illustration
@@ -79,6 +82,22 @@ function buildFrederic() {
 
   g.userData = { plane, shadow, billboard: true };
   return g;
+}
+
+/* Halo radial doré (dégradé transparent) pour l'aura magique derrière Frédéric */
+function makeHaloTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const x = c.getContext("2d");
+  const g = x.createRadialGradient(128, 128, 10, 128, 128, 128);
+  g.addColorStop(0, "rgba(255,210,120,0.9)");
+  g.addColorStop(0.4, "rgba(245,185,66,0.35)");
+  g.addColorStop(1, "rgba(245,185,66,0)");
+  x.fillStyle = g;
+  x.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 /* Texture de secours dessinée sur un canvas : une silhouette d'époque stylisée
@@ -154,14 +173,26 @@ function buildSceneContent(parent) {
   anchorGroup.add(warm, fill, rim);
   anchorGroup.userData.warm = warm;
 
-  // Anneau doré au sol (le cercle magique du livre)
+  // Anneau doré scintillant, à plat sur la couverture (le cercle magique du livre)
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.42, 0.5, 48),
-    new THREE.MeshBasicMaterial({ color: 0xf5b942, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+    new THREE.RingGeometry(0.42, 0.52, 48),
+    new THREE.MeshBasicMaterial({ color: 0xf5b942, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })
   );
-  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005;
+  ring.position.set(0, -0.12, 0.01);   // au niveau des pieds, dans le plan de la couverture
+  ring.renderOrder = 1;
   anchorGroup.add(ring);
   anchorGroup.userData.ring = ring;
+
+  // Halo lumineux doux DERRIÈRE Frédéric (disque dégradé) — donne l'aura magique
+  const haloTex = makeHaloTexture();
+  const halo = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.1, 1.1),
+    new THREE.MeshBasicMaterial({ map: haloTex, transparent: true, opacity: 0.25, depthWrite: false, blending: THREE.AdditiveBlending })
+  );
+  halo.position.set(0, 0.28, -0.02);   // derrière le personnage
+  halo.renderOrder = 0;
+  anchorGroup.add(halo);
+  anchorGroup.userData.halo = halo;
 
   frederic = buildFrederic();
   frederic.scale.setScalar(0.001);       // il apparaîtra en grandissant
@@ -187,48 +218,61 @@ function buildSceneContent(parent) {
 function tick(dt, t) {
   const u = frederic?.userData;
 
-  // Apparition magique
+  // ── Apparition : Frédéric ÉMERGE du livre (monte, grandit, flash de lumière) ──
   if (revealT >= 0 && revealT < 1) {
-    revealT = Math.min(1, revealT + dt / 1.4);
+    revealT = Math.min(1, revealT + dt / 1.6);
     const e = 1 - Math.pow(1 - revealT, 3);      // ease-out cubic
-    frederic.scale.setScalar(0.001 + e * 1.0);
-    if (!u?.billboard) frederic.rotation.y = (1 - e) * Math.PI * 2;  // le GLB tournoie
-    if (particles) particles.material.size = 0.035 + (1 - e) * 0.09;
+    if (u?.billboard) {
+      // sort du livre : part enfoncé/écrasé, puis se dresse à sa taille
+      frederic.scale.set(1, 0.05 + e * 0.95, 1);
+      frederic.position.y = -0.35 * (1 - e);     // remonte depuis la couverture
+      if (u.plane) u.plane.material.opacity = e;  // fondu d'apparition
+    } else {
+      frederic.scale.setScalar(0.001 + e * 1.0);
+      frederic.rotation.y = (1 - e) * Math.PI * 2; // le GLB tournoie
+    }
+    // flash de lumière chaude au moment de l'émergence
+    const a0 = anchorGroup?.userData;
+    if (a0?.warm) a0.warm.intensity = 2 + (1 - e) * 6;
+    if (particles) particles.material.size = 0.035 + (1 - e) * 0.12;
   }
 
-  // Vie du billboard illustré : respire, se balance, "parle"
-  if (u?.billboard) {
-    const bob = Math.sin(t * 1.6) * 0.014;                 // respiration verticale
-    const sway = Math.sin(t * 0.9) * 0.03;                 // léger balancement
+  // ── Vie du personnage illustré : respire, se balance, "parle" ──
+  if (u?.billboard && revealT >= 1) {
+    const bob = Math.sin(t * 1.6) * 0.014;                 // respiration
+    const sway = Math.sin(t * 0.9) * 0.025;                // balancement doux
     frederic.position.y = bob;
-    u.plane.rotation.z = sway;
+    frederic.scale.set(1, 1, 1);
+    // il est déjà face caméra (ancré au livre) : on ne le fait PAS pivoter,
+    // juste un très léger roulis pour la vie.
+    frederic.rotation.z = sway;
+    frederic.rotation.y = Math.sin(t * 0.4) * 0.06;
 
-    if (bookMode) {
-      // Ancré au livre : Fred reste PLANTÉ debout sur la couverture, il ne pivote pas.
-      // On le laisse regarder à peine à gauche/droite pour la vie, sans casser l'ancrage.
-      frederic.rotation.y = Math.sin(t * 0.5) * 0.12;
-    } else if (camera) {
-      // Mode démo (flottant) : billboard doux face à la caméra
-      const target = Math.atan2(camera.position.x - frederic.position.x,
-                                camera.position.z - frederic.position.z);
-      frederic.rotation.y += (target - frederic.rotation.y) * 0.08;
-    }
-
-    // parle : petit rebond énergique + pulsation d'échelle
     if (talking) {
       frederic.position.y = bob + Math.abs(Math.sin(t * 9)) * 0.03;
-      const p = 1 + Math.sin(t * 9) * 0.02;
+      const p = 1 + Math.sin(t * 9) * 0.025;
       u.plane.scale.set(p, 1 / p, 1);
     } else {
       u.plane.scale.set(1, 1, 1);
     }
-    if (u.shadow) u.shadow.material.opacity = 0.28 - Math.abs(bob) * 4;
+    if (u.shadow) u.shadow.material.opacity = 0.26 - Math.abs(bob) * 4;
   }
   if (mixer) mixer.update(dt);
 
+  // ── Ambiance : flamme de chandelle + halo scintillant sur le livre ──
   const a = anchorGroup?.userData;
-  if (a?.warm) a.warm.intensity = 2.2 + Math.sin(t * 7) * 0.35 + Math.sin(t * 13) * 0.15; // flamme
-  if (a?.ring) { a.ring.rotation.z = t * 0.3; a.ring.material.opacity = 0.35 + Math.sin(t * 2) * 0.15; }
+  if (a?.warm && revealT >= 1) a.warm.intensity = 2.2 + Math.sin(t * 7) * 0.35 + Math.sin(t * 13) * 0.15;
+  if (a?.ring) {
+    a.ring.rotation.z = t * 0.35;
+    // halo qui scintille : opacité + échelle pulsées, double fréquence = "sparkle"
+    const twinkle = 0.4 + Math.sin(t * 2.2) * 0.18 + Math.sin(t * 5.7) * 0.1;
+    a.ring.material.opacity = Math.max(0.15, twinkle);
+    a.ring.scale.setScalar(1 + Math.sin(t * 1.8) * 0.04);
+  }
+  if (a?.halo) {
+    a.halo.rotation.z = -t * 0.5;
+    a.halo.material.opacity = 0.18 + Math.abs(Math.sin(t * 1.5)) * 0.16;
+  }
   animateParticles(t);
 }
 
@@ -244,16 +288,12 @@ async function startBookMode() {
   const anchor = mindar.addAnchor(0);
   buildSceneContent(anchor.group);
 
-  // MindAR : le repère de l'ancre a le plan du livre dans le plan XY (Z sort de la couverture).
-  // On redresse tout le groupe de -90° sur X pour que "debout" pointe hors de la page,
-  // et que le sol du personnage coïncide avec la surface du livre.
-  anchorGroup.rotation.x = -Math.PI / 2;
-
-  // Taille & position relatives à la cible (la largeur cible MindAR = 1 unité).
-  // Fred fait ~0.85 de haut = il domine gentiment la couverture sans la masquer,
-  // posé légèrement vers le haut du livre pour laisser voir le titre.
-  anchorGroup.scale.setScalar(0.85);
-  anchorGroup.position.set(0, 0.12, 0);
+  // MindAR : le repère de l'ancre est aligné sur la couverture (X droite, Y haut de la page, Z vers la caméra).
+  // Pour un "cut-out" qui se DRESSE sur le livre et fait face au lecteur, on garde le plan
+  // vertical (surtout pas de bascule à plat) et on l'incline juste un peu vers l'arrière.
+  anchorGroup.rotation.x = 0.3;               // léger recul du haut (comme un chevalet posé)
+  anchorGroup.scale.setScalar(0.9);
+  anchorGroup.position.set(0, -0.12, 0.05);   // pieds vers le bas de la couverture, un poil en avant
   bookMode = true;
 
   anchor.onTargetFound = () => {
