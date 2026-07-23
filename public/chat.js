@@ -11,9 +11,86 @@ let history = [];                 // mémoire de conversation (envoyée au worke
 let recognizing = false;
 let onTalkingChange = () => {};
 let voiceFR = null;
+let audioUnlocked = false;        // politique autoplay : un geste a-t-il amorcé le contexte ?
+let pendingSpeak = null;          // { text, url } salutation bloquée, à rejouer au prochain geste
+
+// WAV 16-bit mono 8kHz, 0.1 s de silence (amorçage autoplay)
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRmQGAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YUAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+/* ── Déblocage autoplay : à appeler dans un geste utilisateur ── */
+export function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  // 1) amorce l'élément audio (autoplay policy)
+  try {
+    const audio = $("tts-audio") || new Audio();
+    audio.src = SILENT_WAV;
+    audio.play().catch(() => {});
+  } catch { /* ignore */ }
+  // 2) amorce speechSynthesis (Chrome Android) + charge les voix
+  try {
+    speechSynthesis.getVoices();
+    speechSynthesis.speak(new SpeechSynthesisUtterance(" "));
+    speechSynthesis.cancel();
+  } catch { /* ignore */ }
+  // 3) si une salutation était bloquée, la rejouer tout de suite
+  if (pendingSpeak) replayPending();
+}
+
+function installUnlockListeners() {
+  const onGesture = () => unlockAudio();
+  document.addEventListener("pointerdown", onGesture, true);
+  document.addEventListener("touchstart", onGesture, true);
+  document.addEventListener("keydown", onGesture, true);
+}
+
+/* ── Rejeu d'une parole bloquée au prochain geste ── */
+function replayPending() {
+  const p = pendingSpeak;
+  if (!p) return;
+  pendingSpeak = null;
+  onTalkingChange(true);
+  if (p.url) {
+    const audio = $("tts-audio");
+    audio.src = p.url;
+    audio.onended = () => { onTalkingChange(false); URL.revokeObjectURL(p.url); };
+    audio.play()
+      .then(() => console.debug("[Frédéric] rejeu de la salutation (audio)"))
+      .catch(() => { onTalkingChange(false); speakViaTTS(p.text); });
+  } else {
+    speakViaTTS(p.text);
+  }
+}
+
+function storePending(text, url) {
+  if (pendingSpeak?.url && pendingSpeak.url !== url) URL.revokeObjectURL(pendingSpeak.url);
+  pendingSpeak = { text, url };
+  console.debug("[Frédéric] audio bloqué -> rejeu au prochain toucher");
+}
+
+function speakViaTTS(text) {
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "fr-FR";
+  if (voiceFR) u.voice = voiceFR;
+  u.rate = 0.98;                    // posé, prestance d'époque
+  u.pitch = 0.6;                    // très grave = clairement masculin
+  u.onend = () => onTalkingChange(false);
+  u.onerror = () => onTalkingChange(false);
+  speechSynthesis.speak(u);
+  // Garde-fou Chrome Android : speak() sans geste récent peut rester muet
+  setTimeout(() => {
+    if (!speechSynthesis.speaking && !speechSynthesis.pending) {
+      console.debug("[Frédéric] speechSynthesis bloqué -> rejeu au prochain toucher");
+      onTalkingChange(false);
+      storePending(text, null);
+    }
+  }, 800);
+}
 
 export function initChat(opts = {}) {
   onTalkingChange = opts.onTalkingChange || (() => {});
+  installUnlockListeners();
 
   // Précharge une voix française MASCULINE pour le fallback (Frédéric est un homme)
   const pick = () => {
@@ -118,20 +195,24 @@ export async function fredericSpeaks(text) {
       const audio = $("tts-audio");
       audio.src = url;
       audio.onended = () => { onTalkingChange(false); URL.revokeObjectURL(url); };
-      await audio.play();
-      return;
+      try {
+        await audio.play();
+        return;
+      } catch (err) {
+        if (err && err.name === "NotAllowedError") {
+          // Autoplay bloqué (geste initial expiré) : rejouer au prochain toucher
+          onTalkingChange(false);
+          storePending(text, url);
+          return;
+        }
+        URL.revokeObjectURL(url);
+        throw err; // autre erreur -> fallback TTS
+      }
     }
   } catch { /* fallback ci-dessous */ }
 
   // 2) Fallback : synthèse vocale du navigateur
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = "fr-FR";
-  if (voiceFR) u.voice = voiceFR;
-  u.rate = 0.98;                    // posé, prestance d'époque
-  u.pitch = 0.6;                    // très grave = clairement masculin, même si la voix de base est féminine
-  u.onend = () => onTalkingChange(false);
-  u.onerror = () => onTalkingChange(false);
-  speechSynthesis.speak(u);
+  speakViaTTS(text);
 }
 
 function showText(text) {
