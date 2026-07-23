@@ -101,8 +101,9 @@ async function edgeTTS(text) {
 }
 
 export async function onRequestPost({ request, env }) {
-  let text;
-  try { text = (await request.json()).text?.slice(0, 600); } catch { /* noop */ }
+  let text, dbg = false;
+  const dbgErrors = [];
+  try { const j = await request.json(); text = j.text?.slice(0, 600); dbg = !!j.debug; } catch { /* noop */ }
   if (!text) return new Response(null, { status: 400 });
 
   const elVoice = env.ELEVENLABS_VOICE_ID || "pNInz6obpgDQGcFmaJgB"; // "Adam"
@@ -133,16 +134,21 @@ export async function onRequestPost({ request, env }) {
         }),
       });
       if (r.ok) audio = await r.arrayBuffer();
+      else dbgErrors.push("elevenlabs:" + r.status);
       // 401/429 = quota épuisé -> on tombe en douceur sur Edge TTS
-    } catch { /* noop */ }
+    } catch (e) { dbgErrors.push("elevenlabs-exc:" + (e?.message || e)); }
   }
 
   // 2) Edge TTS Microsoft — GRATUIT et illimité, voix masculine naturelle
   if (!audio) {
-    try { audio = await edgeTTS(text); } catch { /* noop */ }
+    try { audio = await edgeTTS(text); } catch (e) { dbgErrors.push("edge:" + (e?.message || e)); }
   }
 
-  if (!audio) return new Response(null, { status: 204 }); // 3) dernier recours : navigateur
+  if (!audio) {
+    // Diagnostic : {"text":"...","debug":true} -> renvoie les erreurs au lieu d'un 204 muet
+    if (dbg) return Response.json({ errors: dbgErrors }, { status: 500 });
+    return new Response(null, { status: 204 }); // 3) dernier recours : navigateur
+  }
 
   try { await env.FREDERIC_KV.put(key, audio, { expirationTtl: 60 * 60 * 24 * 30 }); } catch { /* noop */ }
   return new Response(audio, { headers: { "Content-Type": "audio/mpeg" } });
