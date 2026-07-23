@@ -63,6 +63,21 @@ function replayPending() {
   }
 }
 
+/* ── Mode diagnostic : ?debug=1 → badge indiquant quel moteur vocal joue ── */
+const DEBUG_VOICE = new URLSearchParams(location.search).get("debug") === "1";
+function debugVoice(msg) {
+  console.debug("[Frédéric]", msg);
+  if (!DEBUG_VOICE) return;
+  let el = document.getElementById("voice-debug");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "voice-debug";
+    el.style.cssText = "position:fixed;top:8px;left:8px;z-index:9999;background:rgba(0,0,0,.75);color:#F5B942;font:12px monospace;padding:6px 10px;border-radius:8px;max-width:80vw";
+    document.body.appendChild(el);
+  }
+  el.textContent = "🔊 " + msg;
+}
+
 function storePending(text, url) {
   if (pendingSpeak?.url && pendingSpeak.url !== url) URL.revokeObjectURL(pendingSpeak.url);
   pendingSpeak = { text, url };
@@ -201,8 +216,10 @@ export async function fredericSpeaks(text) {
       audio.onended = () => { onTalkingChange(false); URL.revokeObjectURL(url); };
       try {
         await audio.play();
+        debugVoice("ElevenLabs (voix masculine) ✓");
         return;
       } catch (err) {
+        debugVoice("play() bloqué : " + (err?.name || err));
         if (err && err.name === "NotAllowedError") {
           // Autoplay bloqué (geste initial expiré) : rejouer au prochain toucher
           onTalkingChange(false);
@@ -213,9 +230,10 @@ export async function fredericSpeaks(text) {
         throw err; // autre erreur -> fallback TTS
       }
     }
-  } catch { /* fallback ci-dessous */ }
+  } catch (e) { debugVoice("ElevenLabs indisponible : " + (e?.message || e)); }
 
   // 2) Fallback : synthèse vocale du navigateur
+  debugVoice("FALLBACK voix navigateur (robotique)");
   speakViaTTS(text);
 }
 

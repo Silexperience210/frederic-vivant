@@ -13,8 +13,10 @@ export async function onRequestPost({ request, env }) {
   try { text = (await request.json()).text?.slice(0, 600); } catch { /* noop */ }
   if (!text) return new Response(null, { status: 400 });
 
-  // ── Cache : hash du texte ──
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  const voiceId = env.ELEVENLABS_VOICE_ID || "pNInz6obpgDQGcFmaJgB"; // "Adam" — grave, clairement masculin
+
+  // ── Cache : hash du texte + voix (sinon les anciennes voix restent servies 30 jours) ──
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(voiceId + "|" + text));
   const key = "tts:" + [...new Uint8Array(digest)].slice(0, 16)
     .map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -23,7 +25,6 @@ export async function onRequestPost({ request, env }) {
     if (cached) return new Response(cached, { headers: { "Content-Type": "audio/mpeg" } });
   } catch { /* KV absent */ }
 
-  const voiceId = env.ELEVENLABS_VOICE_ID || "pNInz6obpgDQGcFmaJgB"; // "Adam" — grave, clairement masculin
   const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
     method: "POST",
     headers: {
