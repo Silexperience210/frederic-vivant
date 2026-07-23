@@ -32,7 +32,7 @@ function escapeXml(s) {
 /* ── Edge TTS via WebSocket (protocole readaloud) ── */
 async function edgeTTS(text) {
   const gec = await secMsGec();
-  const url = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${EDGE_TRUSTED_TOKEN}&Sec-MS-GEC=${gec}&Sec-MS-GEC-Version=1-143.0.3650.75&ConnectionId=${uuid()}`;
+  const url = `https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${EDGE_TRUSTED_TOKEN}&Sec-MS-GEC=${gec}&Sec-MS-GEC-Version=1-143.0.3650.75&ConnectionId=${uuid()}`;
 
   // Handshake WebSocket via fetch() : permet les en-têtes Origin/User-Agent
   // exigés par le service (impossible avec new WebSocket() dans un Worker)
