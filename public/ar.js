@@ -775,10 +775,42 @@ function buildSceneContent(parent) {
     model.position.z = -center.z * s;
     model.position.y = -box.min.y * s;
 
-    // 3) Enrober dans un groupe pour garder les mêmes userData/animation que la 2.5D.
+    // 3) Matériaux : rendu fiable en scène (faces arrière visibles, alpha MASK,
+    //    auto-éclairage léger pour conserver les couleurs de l'illustration).
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const mat of mats) {
+        if (!mat) continue;
+        mat.side = THREE.DoubleSide;
+        mat.transparent = true;
+        mat.alphaTest = 0.4;
+        if ("metalness" in mat) mat.metalness = 0;
+        if ("emissive" in mat && mat.map) {           // évite le modèle trop sombre
+          mat.emissive = new THREE.Color(0xffffff);
+          mat.emissiveMap = mat.map;
+          mat.emissiveIntensity = 0.5;
+        }
+        mat.needsUpdate = true;
+      }
+    });
+
+    // 4) Enrober dans un groupe pour garder les mêmes userData/animation que la 2.5D.
     const wrap = new THREE.Group();
     wrap.add(model);
-    wrap.userData = { model, glb: true, is3D: true };
+
+    // Ombre douce sous le modèle (même cercle que la 2.5D, animée avec le bob)
+    const shadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.26, 28),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.26, depthWrite: false })
+    );
+    shadow.rotation.x = -Math.PI / 2.2;
+    shadow.position.set(0, -0.01, 0.02);
+    shadow.scale.set(1, 0.5, 1);
+    shadow.renderOrder = 1;
+    wrap.add(shadow);
+
+    wrap.userData = { model, glb: true, is3D: true, shadow };
 
     anchorGroup.remove(frederic);
     frederic = wrap;
@@ -909,6 +941,31 @@ function tick(dt, t) {
       u.plane.scale.y = 1;
     }
     if (u.shadow) u.shadow.material.opacity = 0.26 - Math.abs(bob) * 4;
+  }
+
+  // ── Vie du GLB volumétrique : respire, se balance, et tourne lentement
+  //    pour qu'on admire le volume (c'est le but du vrai modèle 3D). ──
+  if (u?.glb && revealT >= 1) {
+    if (u.idleStart == null) u.idleStart = t;        // fondu d'entrée : pas de saut de rotation.y à la fin du reveal (qui finit à 0)
+    const blend = Math.min(1, (t - u.idleStart) / 1.2);
+    const breath = Math.sin(t * 1.4);
+    frederic.position.y = breath * 0.012;            // respiration (bob vertical)
+    frederic.scale.set(1, 1 + breath * 0.006, 1);    // très léger scale y
+    frederic.rotation.z = Math.sin(t * 0.9) * 0.02;  // balancement doux
+    frederic.rotation.x = Math.sin(t * 0.6) * 0.01;
+    // oscillation qui dévoile le volume 3D + parallaxe caméra (mode démo gyro)
+    const camPar = camera ? THREE.MathUtils.clamp(camera.position.x * 0.6, -0.25, 0.25) : 0;
+    frederic.rotation.y = (Math.sin(t * 0.45) * 0.4 + camPar) * blend;
+
+    if (talking) {
+      frederic.position.y += Math.sin(t * 9) * 0.02;   // bob plus marqué
+      frederic.rotation.x += Math.sin(t * 6) * 0.03;   // léger hochement
+    }
+
+    if (u.shadow) {
+      u.shadow.position.y = -0.01 - frederic.position.y;  // reste plaquée au sol pendant le bob
+      u.shadow.material.opacity = 0.26 - Math.abs(frederic.position.y) * 4;
+    }
   }
   if (mixer) mixer.update(dt);
 
