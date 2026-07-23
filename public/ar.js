@@ -23,6 +23,13 @@ let renderer, scene, camera, clock;
 let frederic;                 // groupe du personnage
 let mixer = null;             // si GLB animé
 let anchorGroup;              // groupe attaché au marqueur (ou au monde en démo)
+let charPivot;                // pivot du personnage + FX "debout" (pivoté seulement en mode livre)
+// Angle de redressement en mode livre : l'ancre MindAR a la couverture en XY local
+// et sa normale en +Z. Le contenu "debout" du code est Y-up (monde démo).
+// Rx(+90°) envoie +Y (haut du personnage) → +Z (hors de la couverture = debout)
+// et +Z (face du personnage) → -Y (bas de la page = vers le lecteur).
+// NB : -90° mettrait le personnage SOUS la couverture (Y → -Z).
+const BOOK_CHAR_ROT_X = Math.PI / 2;
 let particles;                // système de particules "flammes de chandelle"
 let revealT = -1;             // progression de l'apparition magique
 let talking = false;
@@ -680,12 +687,21 @@ function buildSceneContent(parent) {
   anchorGroup = new THREE.Group();
   parent.add(anchorGroup);
 
-  // Lumière de chandelle : chaude, vivante
+  // Pivot "monde Y-up du personnage" : en mode démo il reste neutre (rotation 0) ;
+  // en mode livre on lui applique BOOK_CHAR_ROT_X pour dresser Frédéric sur la
+  // couverture. Tout ce qui doit entourer le personnage DEBOUT (lumières locales,
+  // halo, rayons, particules, lucioles, burst) y est parenté. Tout ce qui doit
+  // rester plaqué sur la couverture (anneaux runiques, glow au sol) reste dans
+  // anchorGroup (ces plans sont déjà dans le plan XY de l'ancre, normale +Z).
+  charPivot = new THREE.Group();
+  anchorGroup.add(charPivot);
+
+  // Lumière de chandelle : chaude, vivante (positions dans le repère Y-up du personnage)
   const warm = new THREE.PointLight(0xffc36b, 2.4, 6); warm.position.set(0.4, 1.2, 0.8);
   const fill = new THREE.AmbientLight(0x8898c8, 1.6);
   const hemi = new THREE.HemisphereLight(0xfff2d8, 0x8a7a6a, 0.9);  // ciel chaud / sol doux
   const rim = new THREE.DirectionalLight(0xf5b942, 1.2); rim.position.set(-1, 2, -1);
-  anchorGroup.add(warm, fill, hemi, rim);
+  charPivot.add(warm, fill, hemi, rim);
   anchorGroup.userData.warm = warm;
 
   // Cercle magique runique : anneau doré gravé de runes qui tourne lentement
@@ -733,30 +749,30 @@ function buildSceneContent(parent) {
     new THREE.PlaneGeometry(1.1, 1.1),
     new THREE.MeshBasicMaterial({ map: haloTex, transparent: true, opacity: 0.25, depthWrite: false, blending: THREE.AdditiveBlending })
   );
-  halo.position.set(0, 0.28, -0.02);   // derrière le personnage
+  halo.position.set(0, 0.28, -0.02);   // derrière le personnage (repère Y-up → suit le pivot)
   halo.renderOrder = 0;
-  anchorGroup.add(halo);
+  charPivot.add(halo);
   anchorGroup.userData.halo = halo;
 
   // Rayons de lumière tournant doucement derrière Frédéric (god rays stylisés)
   const rays = buildGodRays();
   rays.position.set(0, 0.25, -0.03);
   rays.renderOrder = 0;
-  anchorGroup.add(rays);
+  charPivot.add(rays);
   anchorGroup.userData.rays = rays;
 
   frederic = buildFrederic();
   frederic.scale.setScalar(0.001);       // il apparaîtra en grandissant
-  anchorGroup.add(frederic);
+  charPivot.add(frederic);
 
   particles = buildParticles();
-  anchorGroup.add(particles);
+  charPivot.add(particles);
 
   sparkBurst = buildSparkBurst();
-  anchorGroup.add(sparkBurst);
+  charPivot.add(sparkBurst);
 
   fireflies = buildFireflies();
-  anchorGroup.add(fireflies);
+  charPivot.add(fireflies);
 
   // Si un vrai modèle GLB existe (frederic.glb), il remplace le personnage 2.5D.
   const draco = new DRACOLoader();
@@ -852,10 +868,10 @@ function buildSceneContent(parent) {
 
     wrap.userData = { model, glb: true, is3D: true, shadow, glbAnims };
 
-    anchorGroup.remove(frederic);
+    charPivot.remove(frederic);
     frederic = wrap;
     frederic.scale.setScalar(0.001);   // apparaîtra en grandissant
-    anchorGroup.add(frederic);
+    charPivot.add(frederic);           // hérite du pivot livre (idle/reveal ne touchent que y/z)
 
     // 4) Animations : joue "idle" en priorité, sinon la première dispo.
     if (gltf.animations?.length) {
@@ -1099,6 +1115,16 @@ function tick(dt, t) {
   updateFireflies(t);
 }
 
+/* Redresse le contenu "debout" (personnage + FX associés) pour le mode livre :
+   la couverture est le plan XY de l'ancre MindAR (normale +Z). Le pivot porte la
+   rotation, donc les animations idle/reveal (rotation.y / rotation.z / position.y
+   locales du personnage) restent valides et relatives à la couverture. Les effets
+   plaqués sur la page (anneaux runiques, glow) restent dans anchorGroup, déjà
+   dans le plan XY — rien à changer pour eux. */
+function applyBookOrientation() {
+  if (charPivot) charPivot.rotation.x = BOOK_CHAR_ROT_X;
+}
+
 /* ─────────────────────────── Mode LIVRE (MindAR) ─────────────────────────── */
 async function startBookMode() {
   const { MindARThree } = await import("mindar-image-three");
@@ -1111,13 +1137,15 @@ async function startBookMode() {
   const anchor = mindar.addAnchor(0);
   buildSceneContent(anchor.group);
 
-  // MindAR : le repère de l'ancre est aligné sur la couverture (X droite, Y haut de la page, Z vers la caméra).
-  // Pour un "cut-out" qui se DRESSE sur le livre et fait face au lecteur, on garde le plan
-  // vertical (surtout pas de bascule à plat) et on l'incline juste un peu vers l'arrière.
-  anchorGroup.rotation.x = 0.1;               // presque debout : la caméra au-dessus du livre suffit
-  anchorGroup.scale.setScalar(1.3);           // Frédéric (GLB normalisé h=1) domine la couverture sans sortir du champ
-  anchorGroup.position.set(0, -0.35, 0.05);   // pieds ancrés vers le bas de la couverture
+  // MindAR : le repère de l'ancre est aligné sur la couverture (X droite, Y haut de la page,
+  // Z vers la caméra). Le personnage est construit Y-up (monde démo) : on le dresse via le
+  // charPivot (rotation.x = +90°) pour que son "haut" suive la normale +Z de la couverture
+  // et que sa face regarde le bas de la page (le lecteur). anchorGroup reste neutre.
+  anchorGroup.rotation.x = 0;
+  anchorGroup.scale.setScalar(1.05);          // légèrement plus grand que la cible, sans dominer la page
+  anchorGroup.position.set(0, -0.2, 0.02);    // pieds vers le bas de page, posés sur la couverture (z≈0)
   bookMode = true;
+  applyBookOrientation();
 
   anchor.onTargetFound = () => {
     scanGuide.hidden = true;
