@@ -1142,7 +1142,7 @@ async function startBookMode() {
   // charPivot (rotation.x = +90°) pour que son "haut" suive la normale +Z de la couverture
   // et que sa face regarde le bas de la page (le lecteur). anchorGroup reste neutre.
   anchorGroup.rotation.x = 0;
-  anchorGroup.scale.setScalar(1.05);          // légèrement plus grand que la cible, sans dominer la page
+  anchorGroup.scale.setScalar(0.21);          // taille figurine sur la couverture (échelle /5)
   anchorGroup.position.set(0, -0.2, 0.02);    // pieds vers le bas de page, posés sur la couverture (z≈0)
   bookMode = true;
   applyBookOrientation();
