@@ -815,41 +815,11 @@ function buildSceneContent(parent) {
       }
     });
 
-    // 3b) Animation de vertices : le GLB Tripo n'a ni squelette ni clips, on l'anime
-    //     par déplacement de vertices pondérés. Pour chaque mesh, on sauvegarde les
-    //     positions de base et des poids calculés depuis la position NORMALISÉE
-    //     (hauteur 1.0, pieds à y=0, x/z centrés).
+    // 3b) Rigging : le GLB n'a ni squelette ni clips, on crée un squelette
+    //     procédural avec skinning (voir plus bas, après création du wrap).
+    //     Si le skinning échoue, fallback sur l'ancienne animation vertex (glbAnims).
     const glbAnims = [];
-    const invS = s > 0 ? 1 / s : 1;   // convertit un déplacement normalisé → local mesh
-    model.traverse((o) => {
-      if (!o.isMesh) return;
-      const pos = o.geometry.attributes.position;
-      if (!pos) return;
-      const n = pos.count;
-      const basePos = pos.array.slice();
-      const wHead = new Float32Array(n), wTorso = new Float32Array(n);
-      const wArmR = new Float32Array(n), wCoat = new Float32Array(n);
-      for (let i = 0; i < n; i++) {
-        const i3 = i * 3;
-        const xn = s * (basePos[i3] - center.x);      // position normalisée
-        const yn = s * (basePos[i3 + 1] - box.min.y); // y∈[0,1], pieds à 0
-        const zn = s * (basePos[i3 + 2] - center.z);
-        const dHy = (yn - 0.92) / 0.12, dHx = xn / 0.08;
-        wHead[i] = Math.exp(-0.5 * (dHy * dHy + dHx * dHx));        // gaussienne tête
-        const dTy = (yn - 0.62) / 0.14, dTx = xn / 0.16;
-        wTorso[i] = Math.exp(-0.5 * (dTy * dTy + dTx * dTx));       // torse
-        const zMask = THREE.MathUtils.clamp((zn - 0.05) / 0.05, 0, 1);
-        const yMask = THREE.MathUtils.clamp((yn - 0.55) / 0.05, 0, 1)
-                    * THREE.MathUtils.clamp((0.75 - yn) / 0.05, 0, 1);
-        wArmR[i] = zMask * yMask;                                   // bras/livre devant
-        wCoat[i] = THREE.MathUtils.clamp((0.35 - yn) / 0.15, 0, 1); // bas du manteau
-      }
-      glbAnims.push({
-        pos, basePos, wHead, wTorso, wArmR, wCoat, invS,
-        neckY: box.min.y + 0.85 * invS,   // pivot du cou en coords locales
-        phaseK: 8 * s,                    // phase manteau : x*8 en coords normalisées
-      });
-    });
+    let glbBones = null;
 
     // 4) Enrober dans un groupe pour garder les mêmes userData/animation que la 2.5D.
     const wrap = new THREE.Group();
@@ -866,7 +836,113 @@ function buildSceneContent(parent) {
     shadow.renderOrder = 1;
     wrap.add(shadow);
 
-    wrap.userData = { model, glb: true, is3D: true, shadow, glbAnims };
+    // 3c) Squelette procédural + skinning par régions. Les os vivent dans
+    //     l'espace LOCAL du wrap = coordonnées normalisées (y∈[0,1], x/z≈0).
+    //     Le skinning tourne sur GPU (75k verts, 6 os : OK).
+    try {
+      const mkBone = (name, x, y, z) => {
+        const b = new THREE.Bone(); b.name = name; b.position.set(x, y, z); return b;
+      };
+      const bSpine = mkBone("spine", 0, 0.55, 0);                    // taille
+      const bHead  = mkBone("head", 0, 0.86 - 0.55, 0);              // pivot du cou
+      const bArmL  = mkBone("armL", -0.09, 0.72 - 0.55, 0);          // épaule gauche
+      const bArmR  = mkBone("armR",  0.09, 0.72 - 0.55, 0);          // épaule droite (livre/plume)
+      const bCoatL = mkBone("coatL", -0.08, 0.35 - 0.55, 0);         // pan gauche du manteau
+      const bCoatR = mkBone("coatR",  0.08, 0.35 - 0.55, 0);         // pan droit du manteau
+      bSpine.add(bHead, bArmL, bArmR, bCoatL, bCoatR);
+      wrap.add(bSpine);
+      wrap.updateMatrixWorld(true);
+      const boneList = [bSpine, bHead, bArmL, bArmR, bCoatL, bCoatR];
+      const skeleton = new THREE.Skeleton(boneList);   // inverses depuis les bind poses
+      glbBones = { spine: bSpine, head: bHead, armL: bArmL, armR: bArmR, coatL: bCoatL, coatR: bCoatR };
+
+      // Poids lissés par région, depuis la position du vertex en espace wrap.
+      const sstep = (a0, b0, x) => {
+        const q = THREE.MathUtils.clamp((x - a0) / (b0 - a0), 0, 1);
+        return q * q * (3 - 2 * q);                     // smoothstep : pas de plis durs
+      };
+      const vTmp = new THREE.Vector3();
+      const toSkin = [];
+      model.traverse((o) => { if (o.isMesh && !o.isSkinnedMesh) toSkin.push(o); });
+      for (const o of toSkin) {
+        const geo = o.geometry.clone();                 // Draco : géométrie souvent partagée
+        const pos = geo.attributes.position;
+        if (!pos) continue;
+        const n = pos.count;
+        const skinIndex = new Uint16Array(n * 4);
+        const skinWeight = new Float32Array(n * 4);
+        o.updateWorldMatrix(true, false);
+        for (let i = 0; i < n; i++) {
+          vTmp.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);  // → espace wrap
+          const x = vTmp.x, y = vTmp.y;
+          const wHeadV = sstep(0.80, 0.88, y);                            // tête (blend cou 0.80→0.88)
+          const yBand = sstep(0.48, 0.56, y) * (1 - sstep(0.80, 0.88, y)); // zone bras
+          const wArmLV = sstep(0.05, 0.10, -x) * yBand * (1 - wHeadV);    // bras gauche
+          const wArmRV = sstep(0.05, 0.10,  x) * yBand * (1 - wHeadV);    // bras droit
+          const cMask = (1 - sstep(0.30, 0.40, y)) * (1 - wHeadV);        // bas du manteau
+          const wCoatLV = cMask * sstep(0.05, 0.09, -x);
+          const wCoatRV = cMask * sstep(0.05, 0.09,  x);
+          const wSpineV = Math.max(0, 1 - wHeadV - wArmLV - wArmRV - wCoatLV - wCoatRV);
+          // Top-4 influences, poids normalisés (somme = 1)
+          const ws = [[0, wSpineV], [1, wHeadV], [2, wArmLV], [3, wArmRV], [4, wCoatLV], [5, wCoatRV]]
+            .filter((e) => e[1] > 1e-4).sort((a2, b2) => b2[1] - a2[1]).slice(0, 4);
+          let sum = 0; for (const e of ws) sum += e[1];
+          if (sum <= 0) { ws.length = 0; ws.push([0, 1]); sum = 1; }
+          const i4 = i * 4;
+          for (let k = 0; k < ws.length; k++) {
+            skinIndex[i4 + k] = ws[k][0];
+            skinWeight[i4 + k] = ws[k][1] / sum;
+          }
+        }
+        geo.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(skinIndex, 4));
+        geo.setAttribute("skinWeight", new THREE.Float32BufferAttribute(skinWeight, 4));
+        const sm = new THREE.SkinnedMesh(geo, o.material);  // matériau intact (WebP, emissive 0.35)
+        sm.name = o.name;
+        sm.frustumCulled = false;      // le mesh se déplace avec les os
+        o.matrixWorld.decompose(sm.position, sm.quaternion, sm.scale);
+        o.parent.add(sm);
+        o.removeFromParent();
+        sm.updateMatrixWorld(true);
+        sm.bind(skeleton, sm.matrixWorld);
+      }
+      wrap.updateMatrixWorld(true);
+    } catch (rigErr) {
+      // Fallback : ancienne animation de vertices pondérés (CPU).
+      console.warn("[AR] Skinning GLB échoué, animation vertex conservée :", rigErr?.message || rigErr);
+      glbBones = null;
+      const invS = s > 0 ? 1 / s : 1;   // déplacement normalisé → local mesh
+      model.traverse((o) => {
+        if (!o.isMesh) return;
+        const pos = o.geometry.attributes.position;
+        if (!pos) return;
+        const n = pos.count;
+        const basePos = pos.array.slice();
+        const wHead = new Float32Array(n), wTorso = new Float32Array(n);
+        const wArmR = new Float32Array(n), wCoat = new Float32Array(n);
+        for (let i = 0; i < n; i++) {
+          const i3 = i * 3;
+          const xn = s * (basePos[i3] - center.x);      // position normalisée
+          const yn = s * (basePos[i3 + 1] - box.min.y); // y∈[0,1], pieds à 0
+          const zn = s * (basePos[i3 + 2] - center.z);
+          const dHy = (yn - 0.92) / 0.12, dHx = xn / 0.08;
+          wHead[i] = Math.exp(-0.5 * (dHy * dHy + dHx * dHx));        // gaussienne tête
+          const dTy = (yn - 0.62) / 0.14, dTx = xn / 0.16;
+          wTorso[i] = Math.exp(-0.5 * (dTy * dTy + dTx * dTx));       // torse
+          const zMask = THREE.MathUtils.clamp((zn - 0.05) / 0.05, 0, 1);
+          const yMask = THREE.MathUtils.clamp((yn - 0.55) / 0.05, 0, 1)
+                      * THREE.MathUtils.clamp((0.75 - yn) / 0.05, 0, 1);
+          wArmR[i] = zMask * yMask;                                   // bras/livre devant
+          wCoat[i] = THREE.MathUtils.clamp((0.35 - yn) / 0.15, 0, 1); // bas du manteau
+        }
+        glbAnims.push({
+          pos, basePos, wHead, wTorso, wArmR, wCoat, invS,
+          neckY: box.min.y + 0.85 * invS,   // pivot du cou en coords locales
+          phaseK: 8 * s,                    // phase manteau : x*8 en coords normalisées
+        });
+      });
+    }
+
+    wrap.userData = { model, glb: true, is3D: true, shadow, glbAnims, glbBones };
 
     charPivot.remove(frederic);
     frederic = wrap;
@@ -1024,10 +1100,23 @@ function tick(dt, t) {
       frederic.rotation.x += Math.sin(t * 6) * 0.03;   // léger hochement
     }
 
-    // ── Animation de vertices du GLB (le modèle Tripo n'a pas de squelette) :
-    //    respiration du torse, hochement de tête, livre qui respire, manteau
-    //    qui ondule. Boucle sans allocation, sin/cos seulement si poids > 0.003.
-    //    Se combine au reveal : ne démarre qu'après revealT >= 1. ──
+    // ── Animation du squelette procédural (skinning GPU) : mouvements
+    //    articulés crédibles. Se combine au reveal (groupe, indépendant des os). ──
+    const B = u.glbBones;
+    if (B) {
+      B.spine.rotation.x = Math.sin(t * 1.4) * 0.015;          // respiration
+      let nod = Math.sin(t * 0.7) * 0.06;                      // hochement de tête
+      if (talking) nod += Math.sin(t * 6) * 0.08;              // nods marqués en parlant
+      B.head.rotation.x = nod;
+      B.head.rotation.y = Math.sin(t * 0.3) * 0.1;             // il regarde autour de lui
+      B.armL.rotation.x = Math.sin(t * 1.4) * 0.02;            // suit la respiration
+      // Geste de la plume (écriture lente) + salutation oratoire en parlant
+      B.armR.rotation.z = Math.sin(t * 2.2) * 0.05;
+      B.armR.rotation.x = Math.sin(t * 2.2 + 0.7) * 0.05 + talkBoost * Math.sin(t * 3) * 0.15;
+      B.coatL.rotation.x = Math.sin(t * 1.1) * 0.03;           // ondulation du tissu
+      B.coatR.rotation.x = Math.sin(t * 1.1 + 0.9) * 0.03;
+    } else {
+    // ── Fallback : animation de vertices du GLB (si le skinning a échoué) ──
     const anims = u.glbAnims;
     if (anims?.length) {
       let nod = Math.sin(t * 0.7) * 0.04 + Math.sin(t * 1.3) * 0.015;  // hochement lent + micro-vie
@@ -1064,6 +1153,7 @@ function tick(dt, t) {
         // PAS de computeVertexNormals() par frame : mouvement subtil, trop coûteux (~75k verts).
       }
     }
+    }   // fin du fallback animation vertex (glbAnims)
 
     if (u.shadow) {
       u.shadow.position.y = -0.01 - frederic.position.y;  // reste plaquée au sol pendant le bob
@@ -1142,7 +1232,7 @@ async function startBookMode() {
   // charPivot (rotation.x = +90°) pour que son "haut" suive la normale +Z de la couverture
   // et que sa face regarde le bas de la page (le lecteur). anchorGroup reste neutre.
   anchorGroup.rotation.x = 0;
-  anchorGroup.scale.setScalar(0.21);          // taille figurine sur la couverture (échelle /5)
+  anchorGroup.scale.setScalar(0.42);          // taille figurine sur la couverture (×2)
   anchorGroup.position.set(0, -0.2, 0.02);    // pieds vers le bas de page, posés sur la couverture (z≈0)
   bookMode = true;
   applyBookOrientation();

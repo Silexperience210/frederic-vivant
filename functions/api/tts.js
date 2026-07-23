@@ -23,7 +23,7 @@ export async function onRequestPost({ request, env }) {
     if (cached) return new Response(cached, { headers: { "Content-Type": "audio/mpeg" } });
   } catch { /* KV absent */ }
 
-  const voiceId = env.ELEVENLABS_VOICE_ID || "onwK4e9ZLuTAKqWW03F9"; // "Daniel" chaleureux
+  const voiceId = env.ELEVENLABS_VOICE_ID || "pNInz6obpgDQGcFmaJgB"; // "Adam" — grave, clairement masculin
   const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
     method: "POST",
     headers: {
