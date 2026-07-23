@@ -32,10 +32,26 @@ function escapeXml(s) {
 /* ── Edge TTS via WebSocket (protocole readaloud) ── */
 async function edgeTTS(text) {
   const gec = await secMsGec();
-  const url = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${EDGE_TRUSTED_TOKEN}&Sec-MS-GEC=${gec}&Sec-MS-GEC-Version=1-130.0.2849.68&ConnectionId=${uuid()}`;
+  const url = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${EDGE_TRUSTED_TOKEN}&Sec-MS-GEC=${gec}&Sec-MS-GEC-Version=1-143.0.3650.75&ConnectionId=${uuid()}`;
+
+  // Handshake WebSocket via fetch() : permet les en-têtes Origin/User-Agent
+  // exigés par le service (impossible avec new WebSocket() dans un Worker)
+  const resp = await fetch(url, {
+    headers: {
+      "Upgrade": "websocket",
+      "Origin": "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
+      "Pragma": "no-cache",
+      "Cache-Control": "no-cache",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+  });
+  if (resp.status !== 101) throw new Error("edge-handshake-" + resp.status);
+  const ws = resp.webSocket;
+  ws.accept();
 
   return await new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
     const chunks = [];
     const timer = setTimeout(() => { try { ws.close(); } catch {} ; reject(new Error("edge-timeout")); }, 15000);
 
