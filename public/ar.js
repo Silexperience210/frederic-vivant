@@ -10,6 +10,7 @@
    ═══════════════════════════════════════════════════════════════ */
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { initChat, fredericSpeaks } from "./chat.js";
 
 const TARGET_FILE = "targets/frederic.mind";
@@ -758,7 +759,11 @@ function buildSceneContent(parent) {
   anchorGroup.add(fireflies);
 
   // Si un vrai modèle GLB existe (frederic.glb), il remplace le personnage 2.5D.
-  new GLTFLoader().load(GLB_FILE, (gltf) => {
+  const draco = new DRACOLoader();
+  draco.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/");
+  const gltfLoader = new GLTFLoader();
+  gltfLoader.setDRACOLoader(draco);
+  gltfLoader.load(GLB_FILE, (gltf) => {
     const model = gltf.scene;
 
     // 1) Normaliser la taille : Tripo/Meshy exportent à des échelles très variables.
@@ -783,13 +788,12 @@ function buildSceneContent(parent) {
       for (const mat of mats) {
         if (!mat) continue;
         mat.side = THREE.DoubleSide;
-        mat.transparent = true;
-        mat.alphaTest = 0.4;
+        if (mat.transparent) mat.alphaTest = 0.4;   // alpha MASK seulement si le matériau a de l'alpha
         if ("metalness" in mat) mat.metalness = 0;
         if ("emissive" in mat && mat.map) {           // évite le modèle trop sombre
           mat.emissive = new THREE.Color(0xffffff);
           mat.emissiveMap = mat.map;
-          mat.emissiveIntensity = 0.5;
+          mat.emissiveIntensity = 0.35;               // modéré : la texture Tripo a déjà son éclairage baked
         }
         mat.needsUpdate = true;
       }
@@ -828,7 +832,10 @@ function buildSceneContent(parent) {
     if (!bookMode) revealT = Math.max(revealT, 0);
     else if (revealT >= 0) triggerSparkBurst();   // déjà en cours d'apparition
     if (!bookMode) triggerSparkBurst();
-  }, undefined, () => { /* pas de GLB : la 2.5D reste — parfait */ });
+  }, undefined, (err) => {
+    // Pas de GLB ou échec Draco/réseau : le relief 2.5D (buildFrederic3D) reste le fallback.
+    console.warn("[AR] Chargement GLB échoué, relief 2.5D conservé :", err?.message || err);
+  });
 }
 
 /* ─────────────────────────── Animation ─────────────────────────── */
