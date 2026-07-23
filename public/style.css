@@ -282,3 +282,40 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
   padding:9px 14px;border-radius:999px}
 .chip:active{background:var(--chandelle)}
 [hidden]{display:none!important}
+
+/* ── Boutique : grand bouton "Acheter le livre" (landing) ── */
+.shop-cta{position:relative;display:flex;align-items:center;gap:14px;
+  margin-top:26px;padding:14px 22px;border-radius:18px;text-decoration:none;
+  color:var(--nuit);overflow:hidden;isolation:isolate;
+  background:linear-gradient(135deg, #F7CE5B 0%, var(--chandelle) 45%, var(--cuivre) 100%);
+  border:1px solid rgba(255,232,170,.7);
+  box-shadow:0 10px 30px rgba(245,185,66,.35), inset 0 1px 0 rgba(255,255,255,.55);
+  transition:transform .18s ease, box-shadow .18s ease;
+  animation:shopPulse 3.4s ease-in-out infinite}
+.shop-cta:active{transform:scale(.97)}
+@keyframes shopPulse{0%,100%{box-shadow:0 10px 30px rgba(245,185,66,.30), inset 0 1px 0 rgba(255,255,255,.55)}
+  50%{box-shadow:0 12px 40px rgba(245,185,66,.55), inset 0 1px 0 rgba(255,255,255,.55)}}
+/* reflet qui glisse périodiquement */
+.shop-cta-glow{position:absolute;inset:-40%;z-index:-1;pointer-events:none;
+  background:linear-gradient(115deg, transparent 42%, rgba(255,255,255,.65) 50%, transparent 58%);
+  transform:translateX(-70%);animation:sheen 3.8s ease-in-out infinite}
+@keyframes sheen{0%,55%{transform:translateX(-70%)}85%,100%{transform:translateX(70%)}}
+.shop-cta svg{flex:0 0 auto}
+.shop-cta-text{display:flex;flex-direction:column;text-align:left;line-height:1.25}
+.shop-cta-text strong{font-family:Georgia,'Times New Roman',serif;font-size:17px;letter-spacing:.3px}
+.shop-cta-text small{font-size:12px;opacity:.75;font-weight:600}
+.shop-cta-arrow{margin-left:auto;opacity:.7;transition:transform .2s ease}
+.shop-cta:hover .shop-cta-arrow{transform:translateX(4px)}
+@media (prefers-reduced-motion:reduce){.shop-cta,.shop-cta-glow{animation:none}}
+
+/* ── Boutique : pastille flottante dans l'AR ── */
+#ar-shop{position:absolute;top:calc(env(safe-area-inset-top,0px) + 14px);right:14px;z-index:7;
+  display:flex;align-items:center;gap:7px;padding:9px 14px;border-radius:999px;
+  text-decoration:none;font-size:13px;font-weight:800;color:var(--nuit);
+  background:linear-gradient(135deg, #F7CE5B, var(--chandelle));
+  border:1px solid rgba(255,232,170,.6);
+  box-shadow:0 6px 20px rgba(245,185,66,.35);
+  animation:arShopBreath 3s ease-in-out infinite}
+@keyframes arShopBreath{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+#ar-shop:active{transform:scale(.95)}
+@media (prefers-reduced-motion:reduce){#ar-shop{animation:none}}

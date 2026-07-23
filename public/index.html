@@ -71,6 +71,17 @@
     </button>
 
     <button id="btn-demo" class="ghost-link">Essayer sans le livre (mode démo)</button>
+
+    <a class="shop-cta" href="https://amzn.eu/d/05fVniUU" target="_blank" rel="noopener sponsored" aria-label="Acheter le livre Les petites leçons de Frédéric, tome 1">
+      <span class="shop-cta-glow" aria-hidden="true"></span>
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      <span class="shop-cta-text">
+        <strong>Acheter le livre</strong>
+        <small>Les petites leçons de Frédéric · Tome 1</small>
+      </span>
+      <svg class="shop-cta-arrow" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+    </a>
+
     <p class="hint">Maintiens le sceau appuyé pour cachetter le livre… ou tape simplement.<br>Autorise la caméra et le micro quand on te le demande.</p>
   </div>
 </div>
@@ -78,6 +89,12 @@
 <!-- ═══════════ EXPÉRIENCE AR ═══════════ -->
 <div id="ar-stage" hidden>
   <div id="ar-container"></div>
+
+  <!-- Raccourci boutique -->
+  <a id="ar-shop" href="https://amzn.eu/d/05fVniUU" target="_blank" rel="noopener sponsored" aria-label="Acheter le livre">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+    <span>Le livre</span>
+  </a>
 
   <!-- Guide de scan -->
   <div id="scan-guide">
