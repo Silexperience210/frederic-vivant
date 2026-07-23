@@ -980,7 +980,7 @@ async function startBookMode() {
     if (revealT < 0) {
       revealT = 0;
       triggerSparkBurst();
-      fredericSpeaks("Oh ! Bonjour toi ! Je suis Frédéric. Appuie sur le sceau rouge et pose-moi ta question !");
+      fredericSpeaks("Oh ! Bonjour toi ! Je suis Frédéric Bastiat — oui, en personne, sorti des pages ! Dis-moi : y a-t-il une chose que tu aimerais explorer avec moi ? Appuie sur le sceau rouge et parlons !");
     }
   };
   anchor.onTargetLost = () => { scanGuide.hidden = false; };
@@ -1040,7 +1040,7 @@ async function startDemoMode() {
   scanGuide.hidden = true;
   revealT = 0;
   triggerSparkBurst();
-  fredericSpeaks("Bonjour ! Je suis Frédéric Bastiat. Pose-moi une question en appuyant sur le sceau rouge !");
+  fredericSpeaks("Bonjour ! Je suis Frédéric Bastiat, économiste et ami des questions ! Y a-t-il une chose que tu aimerais explorer avec moi ? Appuie sur le sceau rouge et dis-la-moi !");
 
   // Légère parallaxe au gyroscope
   addEventListener("deviceorientation", (e) => {
