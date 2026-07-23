@@ -823,8 +823,11 @@ function buildSceneContent(parent) {
       const idle = gltf.animations.find((a) => /idle|breath|stand/i.test(a.name)) || gltf.animations[0];
       mixer.clipAction(idle).play();
     }
-    revealT = Math.max(revealT, 0);   // relance l'apparition avec le modèle 3D
-    triggerSparkBurst();
+    // En mode livre, on NE lance PAS l'apparition tant que la couverture
+    // n'a pas été détectée (sinon la salutation vocale ne part jamais).
+    if (!bookMode) revealT = Math.max(revealT, 0);
+    else if (revealT >= 0) triggerSparkBurst();   // déjà en cours d'apparition
+    if (!bookMode) triggerSparkBurst();
   }, undefined, () => { /* pas de GLB : la 2.5D reste — parfait */ });
 }
 
@@ -1027,7 +1030,7 @@ async function startBookMode() {
   // MindAR : le repère de l'ancre est aligné sur la couverture (X droite, Y haut de la page, Z vers la caméra).
   // Pour un "cut-out" qui se DRESSE sur le livre et fait face au lecteur, on garde le plan
   // vertical (surtout pas de bascule à plat) et on l'incline juste un peu vers l'arrière.
-  anchorGroup.rotation.x = 0.3;               // léger recul du haut (comme un chevalet posé)
+  anchorGroup.rotation.x = 0.1;               // presque debout : la caméra au-dessus du livre suffit
   anchorGroup.scale.setScalar(2.7);           // Frédéric ~3× plus grand, il domine la scène
   anchorGroup.position.set(0, -0.35, 0.05);   // pieds ancrés vers le bas de la couverture
   bookMode = true;

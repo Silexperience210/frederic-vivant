@@ -91,6 +91,10 @@ function speakViaTTS(text) {
 export function initChat(opts = {}) {
   onTalkingChange = opts.onTalkingChange || (() => {});
   installUnlockListeners();
+  // initChat est appelé depuis le handler du clic (launch()) : on débloque
+  // l'audio SYNCHRONIQUEMENT pendant ce geste, sinon la salutation du reveal
+  // (quelques secondes plus tard) sera bloquée par la politique autoplay.
+  try { unlockAudio(); } catch { /* noop */ }
 
   // Précharge une voix française MASCULINE pour le fallback (Frédéric est un homme)
   const pick = () => {
