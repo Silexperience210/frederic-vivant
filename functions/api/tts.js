@@ -56,16 +56,21 @@ async function edgeTTS(text) {
     const timer = setTimeout(() => { try { ws.close(); } catch {} ; reject(new Error("edge-timeout")); }, 15000);
 
     ws.addEventListener("open", () => {
-      const ts = new Date().toISOString();
+      // Format de date JS-style exigé par le service Edge (bug Microsoft assumé)
+      const d = new Date();
+      const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const p2 = (n) => String(n).padStart(2, "0");
+      const ts = `${days[d.getUTCDay()]} ${months[d.getUTCMonth()]} ${p2(d.getUTCDate())} ${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())} GMT+0000 (Coordinated Universal Time)`;
       ws.send(
-        `X-Timestamp:${ts}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
+        `X-Timestamp:${ts}Z\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
         `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`
       );
       const ssml =
         `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='fr-FR'>` +
         `<voice name='${EDGE_VOICE}'><prosody pitch='-4Hz' rate='-4%' volume='+0%'>${escapeXml(text)}</prosody></voice></speak>`;
       ws.send(
-        `X-RequestId:${uuid()}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${ts}\r\nPath:ssml\r\n\r\n${ssml}`
+        `X-RequestId:${uuid()}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${ts}Z\r\nPath:ssml\r\n\r\n${ssml}`
       );
     });
 
