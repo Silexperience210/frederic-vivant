@@ -25,6 +25,8 @@ let anchorGroup;              // groupe attaché au marqueur (ou au monde en dé
 let particles;                // système de particules "flammes de chandelle"
 let revealT = -1;             // progression de l'apparition magique
 let talking = false;
+let prevTalking = false;        // détection du front montant de `talking`
+let greetT = -10;               // temps du début de parole (geste de salutation)
 let bookMode = false;         // true = ancré au livre (pas de billboard total)
 
 /* ─────────────────── Rendu 3D relief (depth-displacement mesh) ───────────────────
@@ -72,6 +74,34 @@ function buildFrederic3D(g, W, H) {
           pos.needsUpdate = true;
           uv.needsUpdate = true;
           geo.computeVertexNormals();
+
+          // 2b) Animation de vertices : positions de base + poids par zones.
+          //     v = fraction de hauteur depuis le bas de l'image (0 pieds, 1 tête).
+          //     NB : on recalcule u/v depuis la position (l'UV a été inset à 2%).
+          const n = pos.count;
+          const basePos = pos.array.slice();
+          const wHead = new Float32Array(n), wBook = new Float32Array(n),
+                wQuill = new Float32Array(n), wTorso = new Float32Array(n),
+                wCoat = new Float32Array(n), uArr = new Float32Array(n);
+          const gauss = (u, cu, su, v, cv, sv) => {
+            const du = (u - cu) / su, dv = (v - cv) / sv;
+            return Math.exp(-0.5 * (du * du + dv * dv));
+          };
+          for (let i = 0; i < n; i++) {
+            const uu = basePos[i * 3] / W + 0.5;
+            const vv = basePos[i * 3 + 1] / H + 0.5;   // 0 bas, 1 haut
+            uArr[i] = uu;
+            wHead[i]  = gauss(uu, 0.52, 0.16, vv, 0.915, 0.07);   // tête
+            wBook[i]  = gauss(uu, 0.55, 0.14, vv, 0.645, 0.08);   // livre + main
+            wQuill[i] = gauss(uu, 0.40, 0.07, vv, 0.665, 0.06);   // main à la plume
+            wTorso[i] = gauss(uu, 0.45, 0.22, vv, 0.70, 0.14);    // torse (large)
+            // bas du manteau : bande verticale 0.15–0.45, bords latéraux (tissu libre)
+            const vMask = Math.min(1, Math.max(0, (vv - 0.15) / 0.04)) *
+                          Math.min(1, Math.max(0, (0.45 - vv) / 0.04));
+            const sideMask = Math.min(1, Math.max(0, (Math.abs(uu - 0.44) - 0.10) / 0.06));
+            wCoat[i] = vMask * sideMask;
+          }
+          geo.userData.anim = { basePos, wHead, wBook, wQuill, wTorso, wCoat, uArr, H };
 
           // 3) Matériau éclairé : l'illustration s'auto-éclaire (emissive = texture)
           //    pour garder ses couleurs d'origine, tout en recevant la lumière
@@ -803,6 +833,49 @@ function tick(dt, t) {
       //    + parallaxe caméra (mode démo gyro : camera.position.x bouge) ──
       const camPar = camera ? THREE.MathUtils.clamp(camera.position.x * 0.6, -0.25, 0.25) : 0;
       frederic.rotation.y = Math.sin(t * 0.5) * 0.35 + camPar;
+
+      // ── Animation de vertices vivante (respiration, tête, plume, manteau) ──
+      const anim = u.plane?.geometry?.userData?.anim;
+      if (anim) {
+        // impulsion de salutation quand `talking` passe à true
+        if (talking && !prevTalking) greetT = t;
+        prevTalking = talking;
+
+        const { basePos, wHead, wBook, wQuill, wTorso, wCoat, uArr, H } = anim;
+        const arr = u.plane.geometry.attributes.position.array;
+        const neckY = 0.83 * H - H / 2;          // pivot du cou (coordonnées locales)
+        const breath = Math.sin(t * 1.4);
+        // hochement de tête : lent + micro-vie ; plus marqué/rapide en parlant,
+        // + salutation (impulsion amortie) au début de la parole
+        let nod = Math.sin(t * 0.7) * 0.05 + Math.sin(t * 1.3) * 0.02;
+        if (talking) nod += Math.sin(t * 6) * 0.06;
+        const gd = t - greetT;
+        if (gd < 1.5) nod += Math.exp(-gd * 3.5) * Math.sin(gd * 9) * 0.09;
+        const bookZ = Math.sin(t * 1.4 + 0.5) * 0.006;
+        const qF = talking ? 1.8 : 1;            // la plume écrit plus vite en parlant
+        const qCos = Math.cos(t * 5 * qF) * 0.008, qSin = Math.sin(t * 10 * qF) * 0.004;
+        for (let i = 0; i < wHead.length; i++) {
+          const i3 = i * 3;
+          let x = basePos[i3], y = basePos[i3 + 1], z = basePos[i3 + 2];
+          const wh = wHead[i];
+          if (wh > 0.003) {                       // tête : rotation autour du cou (axe X)
+            const a = nod * wh;
+            const dy = y - neckY;
+            y = neckY + dy * Math.cos(a) - z * Math.sin(a);
+            z = dy * Math.sin(a) + z * Math.cos(a);
+          }
+          const wq = wQuill[i];
+          if (wq > 0.003) { x += wq * qCos; y += wq * qSin; }   // plume qui écrit
+          z += wTorso[i] * breath * 0.012;        // respiration du torse
+          z += wBook[i] * bookZ;                  // livre qui suit la respiration
+          const wc = wCoat[i];
+          if (wc > 0.003) x += wc * Math.sin(t * 1.1 + uArr[i] * 6) * 0.01; // manteau ondulant
+          arr[i3] = x; arr[i3 + 1] = y; arr[i3 + 2] = z;
+        }
+        u.plane.geometry.attributes.position.needsUpdate = true;
+        // normales initiales conservées : mouvement subtil, computeVertexNormals()
+        // par frame serait trop coûteux (15k vertices, mobile).
+      }
     } else {
       frederic.rotation.y = Math.sin(t * 0.4) * 0.06;
     }
