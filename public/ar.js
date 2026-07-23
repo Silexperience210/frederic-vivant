@@ -122,7 +122,7 @@ function buildFrederic3D(g, W, H) {
 function buildFrederic() {
   const g = new THREE.Group();
   const H = 0.95;                       // hauteur du personnage
-  const RATIO = 857 / 1800;             // ratio de l'illustration source
+  const RATIO = 588 / 1641;             // ratio de l'illustration source (nouvelle version HD)
   const W = H * RATIO;
 
   // Chaque couche est un plan plein-cadre (même UV que l'image entière),
