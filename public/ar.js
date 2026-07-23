@@ -1237,7 +1237,11 @@ async function startBookMode() {
   bookMode = true;
   applyBookOrientation();
 
-  anchor.onTargetFound = () => {
+  // Deuxième marqueur (cible 1) : la couverture officielle du livre.
+  // Le même contenu (anchorGroup) est déplacé vers l'ancre détectée.
+  const anchor2 = mindar.addAnchor(1);
+  const onFound = (targetGroup) => {
+    if (anchorGroup && anchorGroup.parent !== targetGroup) targetGroup.add(anchorGroup);
     scanGuide.hidden = true;
     if (revealT < 0) {
       revealT = 0;
@@ -1245,7 +1249,10 @@ async function startBookMode() {
       fredericSpeaks("Oh ! Bonjour toi ! Je suis Frédéric Bastiat — oui, en personne, sorti des pages ! Dis-moi : y a-t-il une chose que tu aimerais explorer avec moi ? Appuie sur le sceau rouge et parlons !");
     }
   };
+  anchor.onTargetFound = () => onFound(anchor.group);
+  anchor2.onTargetFound = () => onFound(anchor2.group);
   anchor.onTargetLost = () => { scanGuide.hidden = false; };
+  anchor2.onTargetLost = () => { scanGuide.hidden = false; };
 
   await mindar.start();
 
