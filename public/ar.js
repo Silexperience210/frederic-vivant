@@ -799,6 +799,42 @@ function buildSceneContent(parent) {
       }
     });
 
+    // 3b) Animation de vertices : le GLB Tripo n'a ni squelette ni clips, on l'anime
+    //     par déplacement de vertices pondérés. Pour chaque mesh, on sauvegarde les
+    //     positions de base et des poids calculés depuis la position NORMALISÉE
+    //     (hauteur 1.0, pieds à y=0, x/z centrés).
+    const glbAnims = [];
+    const invS = s > 0 ? 1 / s : 1;   // convertit un déplacement normalisé → local mesh
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      const pos = o.geometry.attributes.position;
+      if (!pos) return;
+      const n = pos.count;
+      const basePos = pos.array.slice();
+      const wHead = new Float32Array(n), wTorso = new Float32Array(n);
+      const wArmR = new Float32Array(n), wCoat = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        const xn = s * (basePos[i3] - center.x);      // position normalisée
+        const yn = s * (basePos[i3 + 1] - box.min.y); // y∈[0,1], pieds à 0
+        const zn = s * (basePos[i3 + 2] - center.z);
+        const dHy = (yn - 0.92) / 0.12, dHx = xn / 0.08;
+        wHead[i] = Math.exp(-0.5 * (dHy * dHy + dHx * dHx));        // gaussienne tête
+        const dTy = (yn - 0.62) / 0.14, dTx = xn / 0.16;
+        wTorso[i] = Math.exp(-0.5 * (dTy * dTy + dTx * dTx));       // torse
+        const zMask = THREE.MathUtils.clamp((zn - 0.05) / 0.05, 0, 1);
+        const yMask = THREE.MathUtils.clamp((yn - 0.55) / 0.05, 0, 1)
+                    * THREE.MathUtils.clamp((0.75 - yn) / 0.05, 0, 1);
+        wArmR[i] = zMask * yMask;                                   // bras/livre devant
+        wCoat[i] = THREE.MathUtils.clamp((0.35 - yn) / 0.15, 0, 1); // bas du manteau
+      }
+      glbAnims.push({
+        pos, basePos, wHead, wTorso, wArmR, wCoat, invS,
+        neckY: box.min.y + 0.85 * invS,   // pivot du cou en coords locales
+        phaseK: 8 * s,                    // phase manteau : x*8 en coords normalisées
+      });
+    });
+
     // 4) Enrober dans un groupe pour garder les mêmes userData/animation que la 2.5D.
     const wrap = new THREE.Group();
     wrap.add(model);
@@ -814,7 +850,7 @@ function buildSceneContent(parent) {
     shadow.renderOrder = 1;
     wrap.add(shadow);
 
-    wrap.userData = { model, glb: true, is3D: true, shadow };
+    wrap.userData = { model, glb: true, is3D: true, shadow, glbAnims };
 
     anchorGroup.remove(frederic);
     frederic = wrap;
@@ -972,6 +1008,47 @@ function tick(dt, t) {
       frederic.rotation.x += Math.sin(t * 6) * 0.03;   // léger hochement
     }
 
+    // ── Animation de vertices du GLB (le modèle Tripo n'a pas de squelette) :
+    //    respiration du torse, hochement de tête, livre qui respire, manteau
+    //    qui ondule. Boucle sans allocation, sin/cos seulement si poids > 0.003.
+    //    Se combine au reveal : ne démarre qu'après revealT >= 1. ──
+    const anims = u.glbAnims;
+    if (anims?.length) {
+      let nod = Math.sin(t * 0.7) * 0.04 + Math.sin(t * 1.3) * 0.015;  // hochement lent + micro-vie
+      if (talking) nod += Math.sin(t * 6) * 0.05;
+      const kBr = breath * 0.010;                        // amplitude torse (normalisée)
+      const kArm = Math.sin(t * 1.4 + 0.6) * 0.006;      // bob du livre/bras
+      const kCoatT = t * 1.1;
+      for (let a = 0; a < anims.length; a++) {
+        const an = anims[a];
+        const { pos, basePos, wHead, wTorso, wArmR, wCoat, invS, neckY, phaseK } = an;
+        const arr = pos.array;
+        const n = wHead.length;
+        const kBrL = kBr * invS, kArmL = kArm * invS, kCoatL = 0.008 * invS;
+        for (let i = 0; i < n; i++) {
+          const i3 = i * 3;
+          let x = basePos[i3], y = basePos[i3 + 1], z = basePos[i3 + 2];
+          const wh = wHead[i];
+          if (wh > 0.003) {                     // tête : rotation autour du cou (axe X)
+            const ang = nod * wh;
+            const dy = y - neckY;
+            const c = Math.cos(ang), sn = Math.sin(ang);
+            y = neckY + dy * c - z * sn;
+            z = dy * sn + z * c;
+          }
+          const wt = wTorso[i];
+          if (wt > 0.003) z += wt * kBrL;       // respiration : le torse se gonfle vers l'avant
+          const wa = wArmR[i];
+          if (wa > 0.003) y += wa * kArmL;      // livre/bras qui suivent la respiration
+          const wc = wCoat[i];
+          if (wc > 0.003) x += wc * Math.sin(kCoatT + basePos[i3] * phaseK) * kCoatL; // manteau ondulant
+          arr[i3] = x; arr[i3 + 1] = y; arr[i3 + 2] = z;
+        }
+        pos.needsUpdate = true;
+        // PAS de computeVertexNormals() par frame : mouvement subtil, trop coûteux (~75k verts).
+      }
+    }
+
     if (u.shadow) {
       u.shadow.position.y = -0.01 - frederic.position.y;  // reste plaquée au sol pendant le bob
       u.shadow.material.opacity = 0.26 - Math.abs(frederic.position.y) * 4;
@@ -1038,7 +1115,7 @@ async function startBookMode() {
   // Pour un "cut-out" qui se DRESSE sur le livre et fait face au lecteur, on garde le plan
   // vertical (surtout pas de bascule à plat) et on l'incline juste un peu vers l'arrière.
   anchorGroup.rotation.x = 0.1;               // presque debout : la caméra au-dessus du livre suffit
-  anchorGroup.scale.setScalar(2.7);           // Frédéric ~3× plus grand, il domine la scène
+  anchorGroup.scale.setScalar(1.3);           // Frédéric (GLB normalisé h=1) domine la couverture sans sortir du champ
   anchorGroup.position.set(0, -0.35, 0.05);   // pieds ancrés vers le bas de la couverture
   bookMode = true;
 
